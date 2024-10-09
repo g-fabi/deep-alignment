@@ -1,3 +1,5 @@
+#training_utils.py
+
 import importlib
 import itertools
 import os
@@ -90,12 +92,19 @@ def setup_tb_logger(dir, name):
     return loggers.TensorBoardLogger(dir, name=name)
 
 
-def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, entity='self-supervised-mmhar', approach='supervised'):
-    return loggers.WandbLogger(config=experiment_info, entity=entity, project=f"{approach}-{modality}-{dataset}", name=experiment_id, id=experiment_id)
+def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach='supervised'):
+    entity = experiment_info.get('wandb_entity', None)
+    project = experiment_info.get('wandb_project', f"{approach}-{modality}-{dataset}")    
+    return loggers.WandbLogger(
+        config=experiment_info,
+        entity=entity,
+        project=project,
+        name=experiment_id,
+        id=experiment_id)
 
 
 def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment_info=None, modality=None, dataset=None, 
-        experiment_id=None, entity='self-supervised-mmhar', approach='supervised', experiment_config_path=None):
+        experiment_id=None, approach='supervised', experiment_config_path=None):
     loggers = []
     loggers_dict = {}
     if 'tensorboard' in logger_names:
@@ -103,7 +112,7 @@ def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment
         loggers.append(tb_logger)
         loggers_dict['tensorboard'] = tb_logger
     if 'wandb' in logger_names:
-        wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, entity, approach)
+        wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach)
         loggers.append(wandb_logger)
         loggers_dict['wandb'] = wandb_logger
         shutil.copy(experiment_config_path, os.path.join(wandb_logger.experiment.dir, "experiment_config.yaml"))
@@ -241,3 +250,16 @@ def nested_to_flat_dict(nested_dict):
         else:
             out[key] = val
     return out
+
+
+#FABIAN: UTIL FUNCTIONS FOR DEEP ALIGNMENT
+
+
+def init_local_transformer(model_cfg, ckpt_path=None):
+    module = importlib.import_module(f"models.{model_cfg['from_module']}")
+    class_name = model_cfg['class_name']
+    class_ = getattr(module, class_name)
+    if ckpt_path is None:
+        return class_(*model_cfg.get('args', []), **model_cfg.get('kwargs', {}))
+    else:
+        return class_.load_from_checkpoint(ckpt_path)

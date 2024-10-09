@@ -13,3 +13,13 @@ model_weights/
 semi_sup_results/
 precomputed_similarities/
 shared_models
+
+#fabian
+models/DSTformer.py
+models/DSTformer2.py
+
+models/STDAT.py
+models/STDAT2.py
+processed_data
+
+datasets/opportunity_aligned.py

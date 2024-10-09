@@ -1,11 +1,13 @@
-#cmc_cvkm.py
+# deep_alignment_model.py
 
 import torch
 import torch.nn.functional as F
 from pytorch_lightning.core.lightning import LightningModule
 from torch import nn
+from models.cmc_cvkm import ContrastiveMultiviewCodingCVKM
 
 from models.cmc import ContrastiveMultiviewCoding
+from torch.autograd import Variable
 
 class MM_NTXent_CVKM(LightningModule):
     """
@@ -27,9 +29,6 @@ class MM_NTXent_CVKM(LightningModule):
         """Returns an [N, N] matrix of cosine similarities."""
         features_1 = F.normalize(features_1, dim=1)
         features_2 = F.normalize(features_2, dim=1)
-        # print(f"features_1 shape: {features_1.shape}")
-        # print(f"features_2 shape: {features_2.shape}")
-        # print(f"features_2.T shape: {features_2.T.shape}")
         similarity_matrix = torch.matmul(features_1, features_2.T)
         return similarity_matrix
 
@@ -178,15 +177,97 @@ class MM_NTXent_CVKM(LightningModule):
         weights = torch.exp(weights * scale)
         return weights
 
-class ContrastiveMultiviewCodingCVKM(ContrastiveMultiviewCoding):
+
+#FABIAN: WD loss
+#https://github.com/LiqunChen0606/Graph-Optimal-Transport/blob/master/BAN_vqa/OT_torch_.py
+class DeepAlignmentLoss(nn.Module):
+    def __init__(self, modalities, beta=0.5):
+        super().__init__()
+        self.modalities = modalities
+        self.beta = beta
+
+    def forward(self, local_features):
+
+        spatial_tokens_mod1, temporal_tokens_mod1 = local_features[self.modalities[0]]  # Inertial modality
+        spatial_tokens_mod2, temporal_tokens_mod2 = local_features[self.modalities[1]]  # Skeleton modality
+
+        # cost matrices for spatial tokens
+        C_spatial = self.cost_matrix_batch_torch(spatial_tokens_mod1, spatial_tokens_mod2)
+        # cost matrices for temporal tokens
+        C_temporal = self.cost_matrix_batch_torch(temporal_tokens_mod1, temporal_tokens_mod2)
+
+        bs, n_spatial, _ = spatial_tokens_mod1.size()
+        m_spatial = spatial_tokens_mod2.size(1)
+        bs_t, n_temporal, _ = temporal_tokens_mod1.size()
+        m_temporal = temporal_tokens_mod2.size(1)
+
+        miu_spatial = torch.ones(bs, n_spatial).to(C_spatial.device) / n_spatial  # batch_size x n_spatial
+        nu_spatial = torch.ones(bs, m_spatial).to(C_spatial.device) / m_spatial   # batch_size x m_spatial
+        miu_temporal = torch.ones(bs_t, n_temporal).to(C_temporal.device) / n_temporal
+        nu_temporal = torch.ones(bs_t, m_temporal).to(C_temporal.device) / m_temporal
+
+        # Wasserstein distances using IPOT algorithm
+        spatial_loss = self.IPOT_distance_torch_batch(C_spatial, n_spatial, m_spatial, miu_spatial, nu_spatial)
+        temporal_loss = self.IPOT_distance_torch_batch(C_temporal, n_temporal, m_temporal, miu_temporal, nu_temporal)
+
+        # Total loss is the sum of spatial and temporal losses averaged over the batch
+        loss = spatial_loss.mean() + temporal_loss.mean()
+        return loss
+
+    def cost_matrix_batch_torch(self, x, y):
+        "Returns the cosine distance batchwise"
+        # x: batch_size x n x D (embeddings from modality 1)
+        # y: batch_size x m x D (embeddings from modality 2)
+        
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        if y.dim() == 2:
+            y = y.unsqueeze(1)
+            
+        # print(f"x shape: {x.shape}")
+        # print(f"y shape: {y.shape}")
+   
+                
+        bs, n, D = x.size()
+        m = y.size(1)
+        x = x / (torch.norm(x, p=2, dim=2, keepdim=True) + 1e-12)
+        y = y / (torch.norm(y, p=2, dim=2, keepdim=True) + 1e-12)
+        cos_dis = torch.bmm(x, y.transpose(1, 2))  # batch_size x n x m
+        cos_dis = 1 - cos_dis  # To minimize this value
+        return cos_dis
+
+    def IPOT_torch_batch(self, C, n, m, miu, nu, iteration=20):
+        # C is the cost matrix: batch_size x n x m
+        # miu and nu are the distributions over tokens in each modality: batch_size x n and batch_size x m
+        bs = C.size(0)
+        sigma = torch.ones(bs, m, 1).to(C.device) / m  # batch_size x m x 1
+        T = torch.ones(bs, n, m).to(C.device)  # Transport plan
+        C = torch.exp(-C / self.beta).float()
+        for t in range(iteration):
+            T = C * T  # batch_size x n x m
+            for k in range(1):
+                delta = miu.unsqueeze(2) / (T @ sigma + 1e-6)  # batch_size x n x 1
+                sigma = nu.unsqueeze(2) / ((T.transpose(1, 2) @ delta) + 1e-6)  # batch_size x m x 1
+            T = delta * T * sigma.transpose(1, 2)  # Update transport plan
+        return T.detach()
+
+    def IPOT_distance_torch_batch(self, C, n, m, miu, nu):
+        # Computes the Wasserstein distance for each sample in the batch
+        # C: batch_size x n x m
+        bs = C.size(0)
+        T = self.IPOT_torch_batch(C, n, m, miu, nu)
+        distance = torch.sum(T * C, dim=(1, 2))  # batch_size
+        return -distance  # Negative distance to minimize
+    
+class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCodingCVKM):
     """
-    Extension of our implementation of CMC which uses cross-view knowledge
-    mining to guide the training process.
+    Extension to the CMC-CVKM to include local transformers and deep alignment loss for the local information.
     """
     def __init__(
         self,
         modalities,
         encoders,
+        local_transformers,
         similarity_metrics,
         cmkm_config,
         hidden=[256, 128],
@@ -197,35 +278,97 @@ class ContrastiveMultiviewCodingCVKM(ContrastiveMultiviewCoding):
         **kwargs
     ):
         # Initialize traditional CMC.
-        super(ContrastiveMultiviewCodingCVKM, self).__init__(modalities=modalities, encoders=encoders, 
-            hidden=hidden, batch_size=batch_size, temperature=temperature, optimizer_name_ssl=optimizer_name_ssl,
-            lr=lr, **kwargs)
+        super().__init__(
+            modalities=modalities,
+            encoders=encoders,
+            similarity_metrics=similarity_metrics,
+            cmkm_config=cmkm_config,                         
+            hidden=hidden,
+            batch_size=batch_size,
+            temperature=temperature,
+            optimizer_name_ssl=optimizer_name_ssl,
+            lr=lr,
+            **kwargs)
 
-        self.modalities = modalities
-        self.similarity_metrics = similarity_metrics
+        self.local_transformers = nn.ModuleDict(local_transformers)
+        self.deep_alignment_loss_fn = DeepAlignmentLoss(modalities)
+        
 
-        # Replace the loss function.
-        self.loss = MM_NTXent_CVKM(batch_size, modalities, similarity_metrics, cmkm_config, temperature=temperature)
+    # def on_fit_start(self):
+    #     for m in self.modalities:
+    #         if m in self.similarity_metrics:
+    #             self.similarity_metrics[m].move_to_device(self.device)
+    #             self.similarity_metrics[m].set_dataset(self.trainer.datamodule.train_dataloader().dataset)
 
-    def on_fit_start(self):
+
+    #FABIAN override forward method to include deep alignment method
+    
+    def forward(self, x):
+        adjusted_x = {}
         for m in self.modalities:
-            if m in self.similarity_metrics:
-                self.similarity_metrics[m].move_to_device(self.device)
-                self.similarity_metrics[m].set_dataset(self.trainer.datamodule.train_dataloader().dataset)
-
+            if m == 'inertial':
+                x_inertial = x[m]  
+                # For the encoder, use as is
+                x_inertial_encoder = x_inertial
+                # For the local transformer (STDAT), keep as is
+                #print(f"x_inertial shape before permutation: {x_inertial.shape}")
+                x_inertial_local = x_inertial.permute(0, 2, 1)  # [64, 50, 6]
+                #print(f"x_inertial shape after permutation: {x_inertial.shape}")
+                adjusted_x[m] = {'encoder_input': x_inertial_encoder, 'local_transformer_input': x_inertial_local}
+            elif m == 'skeleton':
+                x_skeleton = x[m] # Shape: [64, 3, 50, 20]
+                x_skeleton_encoder = x_skeleton
+                # For the local transformer, permute to [B, F, J, C] = [64, 50, 20, 3]
+                x_skeleton_local = x_skeleton.permute(0, 2, 3, 1)
+                adjusted_x[m] = {'encoder_input': x_skeleton_encoder, 'local_transformer_input': x_skeleton_local}
+            else:
+                adjusted_x[m] = {'encoder_input': x[m], 'local_transformer_input': x[m]}
+        
+        h = {}
+        for m in self.modalities:
+            x_modality = adjusted_x[m]['encoder_input']
+            #print(f"Global Encoder Input Shape ({m}): {x_modality.shape}")
+            h[m] = self.encoders[m](x_modality)
+            h[m] = h[m].reshape(h[m].size(0), -1)
+            #print(f"Flattened Encoder Output Shape ({m}): {h[m].shape}")
+        z = {}
+        for m in self.modalities:
+            z[m] = self.projections[m](h[m])
+        global_features = z  
+        
+        local_features = {}
+        for m in self.modalities:
+            x_modality = adjusted_x[m]['local_transformer_input']
+            #print(f"Local Transformer Input Shape ({m}): {x_modality.shape}")
+            local_features[m] = self.local_transformers[m](x_modality)
+        
+        return global_features, local_features
+    
+    #FABIAN modified training step to include deep alignment loss
     def training_step(self, batch, batch_idx):
         for m in self.modalities:
             batch[m] = batch[m].float()
-        outs = self(batch)
-        loss, pos, neg = self.loss(outs, batch, training=True, batch_idx=batch_idx)
-        self.log("ssl_train_loss", loss)
+            
+        global_features, local_features = self(batch)
+        
+        loss_cmc_cmkm, pos, neg = self.loss(global_features, batch, training=True, batch_idx=batch_idx)
+        loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
+        total_loss = loss_cmc_cmkm + loss_deep_alignment
+            
+        self.log("ssl_train_loss", total_loss)
         self.log("avg_positive_sim", pos)
         self.log("avg_neg_sim", neg)
-        return loss
+        self.log("deep_alignment_loss", loss_deep_alignment)
+        
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
         for m in self.modalities:
             batch[m] = batch[m].float()
-        outs = self(batch)
-        loss, _, _ = self.loss(outs, batch, training=False, batch_idx=batch_idx)
-        self.log("ssl_val_loss", loss)
+        
+        global_features, local_features = self(batch)
+        loss_cmc_cmkm, _, _ = self.loss(global_features, batch, training = False, batch_idx = batch_idx)
+        loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
+        total_loss = loss_cmc_cmkm + loss_deep_alignment
+        
+        self.log("ssl_val_loss", total_loss)

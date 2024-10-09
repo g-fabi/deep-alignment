@@ -1,3 +1,5 @@
+# general_transforms.py
+
 import numpy as np
 import torch
 
@@ -15,6 +17,8 @@ class Normalize:
 
 class ToTensor:
     def __call__(self, x):
+        tensor = torch.tensor(x)
+        #print("Shape after ToTensor:", tensor.shape)
         return torch.tensor(x)
 
 class Permute:
