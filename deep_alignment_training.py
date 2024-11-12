@@ -70,7 +70,9 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
     train_transforms = {}
     test_transforms = {}
     for m in modalities:
-        _, transform_cfg = check_sampling_cfg(model_cfgs[m]['global_encoder'], transform_cfgs[m])
+        model_name = args.models[modalities.index(m)]
+        model_cfg = model_cfgs[m]['global_encoder']
+        _, transform_cfg = check_sampling_cfg(model_cfg, transform_cfgs[m])
         cur_train_transforms, cur_test_transforms = init_transforms(
             m,
             transform_cfg,
@@ -82,52 +84,33 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 
     # Initialize datamodule.
     batch_size = ssl_cfg['kwargs']['batch_size']
-    datamodule = init_datamodule(data_path=args.data_path, dataset_name=args.dataset, modalities=modalities, batch_size=batch_size,
-    split=dataset_cfg['protocols'][args.protocol], train_transforms=train_transforms, test_transforms=test_transforms,
-    ssl=True, n_views=1, num_workers=args.num_workers)
+    datamodule = init_datamodule(
+        data_path=args.data_path,
+        dataset_name=args.dataset,
+        modalities=modalities,
+        batch_size=batch_size,
+        split=dataset_cfg['protocols'][args.protocol],
+        train_transforms=train_transforms,
+        test_transforms=test_transforms,
+        ssl=True,
+        n_views=1,
+        num_workers=args.num_workers
+    )
 
-    # Merge general model params with dataset-specific model params.
-    for m in modalities:
-    # global encoder
-        model_cfgs[m]['global_encoder']['kwargs'] = {**dataset_cfg[m], **model_cfgs[m]['global_encoder']['kwargs']}
-        # local transformer, only merge relevant keys
-        if m == 'inertial':
-            # Assuming 'imu_feature_count' should match 'in_channels' from dataset_cfg
-            model_cfgs[m]['local_transformer']['kwargs'] = {
-                'imu_feature_count': dataset_cfg[m]['in_channels'],
-                **model_cfgs[m]['local_transformer']['kwargs']
-            }
-        elif m == 'skeleton':
-            # Assuming 'n_joints' should match 'n_joints' from dataset_cfg
-            model_cfgs[m]['local_transformer']['kwargs'] = {
-                'num_joints': dataset_cfg[m]['n_joints'],
-                **model_cfgs[m]['local_transformer']['kwargs']
-            }
-
-    # Initialize encoders and SSL framework.
+    # Initialize encoders for global and local features
     encoders = {}
-    for m in modalities:
-        #encoders[m] = init_ssl_encoder(model_cfgs[m])
-        #FABIAN: global encoder
-        encoders[m] = init_ssl_encoder(model_cfgs[m]['global_encoder'])
-        
-    #FABIAN: local encoder
     local_transformers = {}
     for m in modalities:
-        local_transformer_cfg = model_cfgs[m]['local_transformer']
-        local_transformers[m] = init_local_transformer(local_transformer_cfg)
+        encoders[m] = init_ssl_encoder(model_cfgs[m]['global_encoder'])
+        local_transformers[m] = init_local_transformer(model_cfgs[m]['local_transformer'])
 
-    
     # Initialize the model.
     if args.framework == 'cmc':
         model = ContrastiveMultiviewCoding(modalities, encoders, **ssl_cfg['kwargs'])
     elif args.framework == 'cmc-cmkm':
         similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
         model = ContrastiveMultiviewCodingCVKM(modalities, encoders, similarity_metrics, **ssl_cfg['kwargs'])
-        
-    #FABIAN: deep alingment approach    
     elif args.framework == 'cmc-cmkm-deep-alignment':
-        
         similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
         cmkm_config = ssl_cfg['kwargs']['cmkm_config']
         hidden = ssl_cfg['kwargs'].get('hidden', [256, 128])
@@ -136,7 +119,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         optimizer_name_ssl = ssl_cfg['kwargs'].get('optimizer_name_ssl', 'adam')
         lr = ssl_cfg['kwargs'].get('lr', 0.001)
 
-        # model with both encoders and local transformers.
+        # Initialize the extended model
         model = ContrastiveMultiviewCodingCVKMWithDeepAlignment(
             modalities=modalities,
             encoders=encoders,
@@ -159,8 +142,16 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         experiment_id         = experiment_id,
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(args=args,
+                                         logger=loggers_list,
+                                         gpus=1,
+                                         deterministic=True,
+                                         max_epochs=num_epochs,
+                                         default_root_dir='logs',
+                                         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+                                         callbacks=callbacks,
+                                         #checkpoint_callback=not args.no_ckpt
+                                         )
     trainer.fit(model, datamodule)
 
     return encoders, loggers_list, loggers_dict, experiment_id
@@ -202,8 +193,16 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
         experiment_id         = experiment_id
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(args=args,
+                                         logger=loggers_list,
+                                         gpus=1,
+                                         deterministic=True,
+                                         max_epochs=num_epochs,
+                                         default_root_dir='logs', 
+                                         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+                                         callbacks=callbacks,
+                                         #checkpoint_callback=not args.no_ckpt
+                                         )
 
     trainer.fit(model, datamodule)
     trainer.test(model, datamodule, ckpt_path='best')
@@ -254,7 +253,7 @@ def parse_all_cfgs(args):
     for i, modality in enumerate(args.modalities):
         model_cfgs[modality] = {}
         model_cfgs[modality]['global_encoder'] = cfg['modalities'][modality]['global_encoder'][args.models[i]]
-        model_cfgs[modality]['local_transformer'] = cfg['modalities'][modality]['local_transformer']
+        model_cfgs[modality]['local_transformer'] = cfg['modalities'][modality]['local_transformer'][args.models[i]]
         transform_cfgs[modality] = cfg['modalities'][modality]['transforms']
         augmentation_cfgs[modality] = load_yaml_to_dict(args.augmentations_path[i])
 
@@ -297,7 +296,7 @@ def init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmenta
         **flat_cmkm_config
     }
     for m in modalities:
-        experiment_info[f"{m}_encoder"] = model_cfgs[m]['global_encoder']['encoder_class_name']
+        experiment_info[f"{m}_encoder"] = model_cfgs[m]['global_encoder']['class_name']
         experiment_info[f"{m}_augmentations"] = augmentation_cfgs[m]
     
     loggers_list, loggers_dict = setup_loggers(logger_names=['tensorboard', 'wandb'],
@@ -328,7 +327,11 @@ def run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, t
     modalities = args.modalities
     loggers_list, loggers_dict = init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id)
     
-    encoders, loggers_list, loggers_dict, experiment_id = ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, experiment_id, loggers_list, loggers_dict)
+    encoders, loggers_list, loggers_dict, experiment_id = ssl_pre_training(
+        args, modalities, experiment_cfg, ssl_cfg, dataset_cfg,
+        model_cfgs, transform_cfgs, augmentation_cfgs, experiment_id,
+        loggers_list, loggers_dict
+    )
     result_metrics = fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id)
     return result_metrics
 

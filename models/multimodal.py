@@ -1,5 +1,5 @@
 import torch
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from torch import nn
 
 class MultiModalClassifier(LightningModule):

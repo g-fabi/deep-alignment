@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from pl_bolts.optimizers.lars import LARS
 from pl_bolts.optimizers.lr_scheduler import linear_warmup_decay
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from torch import nn
 
 from models.mlp import ProjectionMLP

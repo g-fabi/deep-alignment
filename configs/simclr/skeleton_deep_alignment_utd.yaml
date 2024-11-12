@@ -1,6 +1,6 @@
 experiment:
   seed: 28
-  num_epochs_ssl: 100  # Adjust as needed
+  num_epochs_ssl: 100
   num_epochs_fine_tuning: 100
   batch_size_fine_tuning: 64
 
@@ -17,24 +17,24 @@ modalities:
           out_channels: [64, 32, 32, 64, 128, 256]
           kernel_sizes: [[1, 1], [3, 1], [3, 3], [3, 3], [3, 3], [3, 3]]
           max_pool_sizes: [null, null, 2, 2, 2, 2]
-          sample_length: 50
+          sample_length: 25
           lr: 0.001
           optimizer_name: "adam"
 
     local_transformer:
       class_name: DSTformer
-      from_module: DSTformer2  # Adjust this if your module name is different
+      from_module: DSTformer3
       args: []
       kwargs:
-        dim_in: 3  # Input dimension (e.g., x, y, z coordinates)
+        dim_in: 3
         dim_out: 3
-        dim_feat: 256
+        dim_feat: 128
         dim_rep: 512
         depth: 5
         num_heads: 8
         mlp_ratio: 4
         num_joints: 17  
-        maxlen: 50
+        maxlen: 25
 
     transforms:
       - class_name: RecenterJoints
@@ -53,7 +53,7 @@ modalities:
         transform_name: sampling
         in_test: true
         kwargs:
-          size: 50
+          size: 25
       - class_name: ToTensor
         from_module: general_transforms
         in_test: true

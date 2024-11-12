@@ -26,6 +26,7 @@ class Permute:
         self.shape = shape
 
     def __call__(self, x):
+        #print(f"x Before Permute shape: {x.shape}")
         return x.permute(self.shape)
 
 class ToFloat:

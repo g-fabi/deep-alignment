@@ -46,14 +46,37 @@ class Permutation():
         orig_steps = np.arange(x.shape[0])
         num_segs = np.random.randint(1, self.max_segments)
         
-        ret = np.zeros_like(x)
         if num_segs > 1:
-            splits = np.array_split(orig_steps, num_segs)
-            warp = np.concatenate(np.random.permutation(splits)).ravel()
+            # Ensure all segments are equal length
+            seg_length = len(orig_steps) // num_segs
+            splits = [orig_steps[i:i + seg_length] for i in range(0, len(orig_steps), seg_length)]
+            
+            # Handle any remaining elements
+            if len(splits[-1]) < seg_length:
+                splits[-2] = np.concatenate([splits[-2], splits[-1]])
+                splits.pop()
+            
+            # Permute and reconstruct
+            perm_splits = np.random.permutation(splits)
+            warp = np.concatenate(perm_splits)
             ret = x[warp]
         else:
             ret = x
+            
+        # Ensure output length matches input length
+        if len(ret) != len(x):
+            ret = ret[:len(x)]
+            
         return ret
+
+    def apply_augmentation(self, x):
+        # Make sure output length matches input length
+        output_length = len(x)
+        # Apply augmentations while preserving length
+        augmented = self(x)
+        # Resample/pad/truncate to match original length
+        augmented = resample_to_length(augmented, output_length)
+        return augmented
 
 
 if __name__ == '__main__':

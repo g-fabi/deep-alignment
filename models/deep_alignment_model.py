@@ -2,12 +2,14 @@
 
 import torch
 import torch.nn.functional as F
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from torch import nn
 from models.cmc_cvkm import ContrastiveMultiviewCodingCVKM
 
 from models.cmc import ContrastiveMultiviewCoding
 from torch.autograd import Variable
+
+from utils.training_utils import init_encoders, init_local_transformer
 
 class MM_NTXent_CVKM(LightningModule):
     """
@@ -187,81 +189,99 @@ class DeepAlignmentLoss(nn.Module):
         self.beta = beta
 
     def forward(self, local_features):
+        # Extract spatial and temporal tokens for each modality
+        spatial_tokens_mod1 = local_features[self.modalities[0]]['spatial_tokens']  # [bs, n_spatial, dim]
+        temporal_tokens_mod1 = local_features[self.modalities[0]]['temporal_tokens']  # [bs, n_temporal, dim]
+        spatial_tokens_mod2 = local_features[self.modalities[1]]['spatial_tokens']  # [bs, seq_len, n_joints, dim]
+        temporal_tokens_mod2 = local_features[self.modalities[1]]['temporal_tokens']  # [bs, seq_len, n_frames, dim]
 
-        spatial_tokens_mod1, temporal_tokens_mod1 = local_features[self.modalities[0]]  # Inertial modality
-        spatial_tokens_mod2, temporal_tokens_mod2 = local_features[self.modalities[1]]  # Skeleton modality
+        print(f"spatial_tokens_mod1 shape: {spatial_tokens_mod1.shape}")
+        print(f"spatial_tokens_mod2 shape: {spatial_tokens_mod2.shape}")
+        print(f"temporal_tokens_mod1 shape: {temporal_tokens_mod1.shape}")
+        print(f"temporal_tokens_mod2 shape: {temporal_tokens_mod2.shape}")
 
-        # cost matrices for spatial tokens
+        # Collapse seq_len and n_joints/n_frames
+        bs, seq_len, n_joints, dim = spatial_tokens_mod2.shape
+        spatial_tokens_mod2 = spatial_tokens_mod2.view(bs, seq_len * n_joints, dim)
+        n_spatial_mod2 = spatial_tokens_mod2.size(1)
+
+        bs, seq_len, n_frames, dim = temporal_tokens_mod2.shape
+        temporal_tokens_mod2 = temporal_tokens_mod2.view(bs, seq_len * n_frames, dim)
+        n_temporal_mod2 = temporal_tokens_mod2.size(1)
+
+        # Verify that spatial_tokens_mod1 and spatial_tokens_mod2 now have matching dimensions
+        print(f"spatial_tokens_mod1 shape: {spatial_tokens_mod1.shape}")  # [bs, n_spatial, dim]
+        print(f"spatial_tokens_mod2 shape: {spatial_tokens_mod2.shape}")  # [bs, n_spatial_mod2, dim]
+
+        # Proceed with cost matrix computation
         C_spatial = self.cost_matrix_batch_torch(spatial_tokens_mod1, spatial_tokens_mod2)
-        # cost matrices for temporal tokens
         C_temporal = self.cost_matrix_batch_torch(temporal_tokens_mod1, temporal_tokens_mod2)
 
-        bs, n_spatial, _ = spatial_tokens_mod1.size()
-        m_spatial = spatial_tokens_mod2.size(1)
-        bs_t, n_temporal, _ = temporal_tokens_mod1.size()
-        m_temporal = temporal_tokens_mod2.size(1)
+        # Compute miu and nu
+        bs, n_spatial_mod1, _ = spatial_tokens_mod1.size()
+        miu_spatial = torch.ones(bs, n_spatial_mod1).to(C_spatial.device) / n_spatial_mod1
+        nu_spatial = torch.ones(bs, n_spatial_mod2).to(C_spatial.device) / n_spatial_mod2
 
-        miu_spatial = torch.ones(bs, n_spatial).to(C_spatial.device) / n_spatial  # batch_size x n_spatial
-        nu_spatial = torch.ones(bs, m_spatial).to(C_spatial.device) / m_spatial   # batch_size x m_spatial
-        miu_temporal = torch.ones(bs_t, n_temporal).to(C_temporal.device) / n_temporal
-        nu_temporal = torch.ones(bs_t, m_temporal).to(C_temporal.device) / m_temporal
+        bs, n_temporal_mod1, _ = temporal_tokens_mod1.size()
+        miu_temporal = torch.ones(bs, n_temporal_mod1).to(C_temporal.device) / n_temporal_mod1
+        nu_temporal = torch.ones(bs, n_temporal_mod2).to(C_temporal.device) / n_temporal_mod2
 
-        # Wasserstein distances using IPOT algorithm
-        spatial_loss = self.IPOT_distance_torch_batch(C_spatial, n_spatial, m_spatial, miu_spatial, nu_spatial)
-        temporal_loss = self.IPOT_distance_torch_batch(C_temporal, n_temporal, m_temporal, miu_temporal, nu_temporal)
+        # Compute IPOT distances and combine losses
+        loss_spatial = self.IPOT_distance_torch_batch(C_spatial, n_spatial_mod1, n_spatial_mod2, miu_spatial, nu_spatial)
+        loss_temporal = self.IPOT_distance_torch_batch(C_temporal, n_temporal_mod1, n_temporal_mod2, miu_temporal, nu_temporal)
 
-        # Total loss is the sum of spatial and temporal losses averaged over the batch
-        loss = spatial_loss.mean() + temporal_loss.mean()
+        # Combine losses
+        loss = loss_spatial + loss_temporal
         return loss
 
     def cost_matrix_batch_torch(self, x, y):
-        "Returns the cosine distance batchwise"
-        # x: batch_size x n x D (embeddings from modality 1)
-        # y: batch_size x m x D (embeddings from modality 2)
-        
-        if x.dim() == 2:
-            x = x.unsqueeze(1)
-        if y.dim() == 2:
-            y = y.unsqueeze(1)
-            
-        # print(f"x shape: {x.shape}")
-        # print(f"y shape: {y.shape}")
-   
-                
-        bs, n, D = x.size()
-        m = y.size(1)
-        x = x / (torch.norm(x, p=2, dim=2, keepdim=True) + 1e-12)
-        y = y / (torch.norm(y, p=2, dim=2, keepdim=True) + 1e-12)
-        cos_dis = torch.bmm(x, y.transpose(1, 2))  # batch_size x n x m
-        cos_dis = 1 - cos_dis  # To minimize this value
-        return cos_dis
+        """
+        Computes the cosine distance between x and y in batches.
+        x: [batch_size, n, dim]
+        y: [batch_size, m, dim]
+        Returns a tensor of shape [batch_size, n, m]
+        """
+        # Normalize x and y
+        x_norm = x / (torch.norm(x, p=2, dim=2, keepdim=True) + 1e-12)
+        y_norm = y / (torch.norm(y, p=2, dim=2, keepdim=True) + 1e-12)
 
-    def IPOT_torch_batch(self, C, n, m, miu, nu, iteration=20):
-        # C is the cost matrix: batch_size x n x m
-        # miu and nu are the distributions over tokens in each modality: batch_size x n and batch_size x m
+        # Compute cosine similarity and convert to distance
+        cos_sim = torch.bmm(x_norm, y_norm.transpose(1, 2))  # [batch_size, n, m]
+        C = 1 - cos_sim  # Cosine distance
+        return C
+
+    def IPOT_distance_torch_batch(self, C, n, m, miu, nu, iteration=20):
+        """
+        Computes the IPOT distance in batches.
+        C: Cost matrix [bs, n, m]
+        miu: [bs, n]
+        nu: [bs, m]
+        Returns a tensor of shape [bs]
+        """
         bs = C.size(0)
-        sigma = torch.ones(bs, m, 1).to(C.device) / m  # batch_size x m x 1
-        T = torch.ones(bs, n, m).to(C.device)  # Transport plan
-        C = torch.exp(-C / self.beta).float()
+        T = self.IPOT_torch_batch(C, bs, n, m, miu, nu, iteration)
+        cost = torch.einsum('bij,bij->b', C, T)  # Batch-wise trace
+        return -cost.mean()
+
+    def IPOT_torch_batch(self, C, bs, n, m, miu, nu, iteration=20, beta=0.5):
+        """
+        Computes the IPOT transport plan in batches.
+        """
+        sigma = torch.ones(bs, m, 1).to(C.device) / m  # [bs, m, 1]
+        T = torch.ones(bs, n, m).to(C.device)  # [bs, n, m]
+        A = torch.exp(-C / beta)  # [bs, n, m]
+        miu = miu.unsqueeze(2)  # [bs, n, 1]
+        nu = nu.unsqueeze(2)  # [bs, m, 1]
         for t in range(iteration):
-            T = C * T  # batch_size x n x m
-            for k in range(1):
-                delta = miu.unsqueeze(2) / (T @ sigma + 1e-6)  # batch_size x n x 1
-                sigma = nu.unsqueeze(2) / ((T.transpose(1, 2) @ delta) + 1e-6)  # batch_size x m x 1
-            T = delta * T * sigma.transpose(1, 2)  # Update transport plan
+            Q = A * T  # [bs, n, m]
+            delta = miu / (torch.bmm(Q, sigma) + 1e-6)
+            sigma = nu / (torch.bmm(Q.transpose(1, 2), delta) + 1e-6)
+            T = delta * Q * sigma.transpose(1, 2)  # [bs, n, m]
         return T.detach()
-
-    def IPOT_distance_torch_batch(self, C, n, m, miu, nu):
-        # Computes the Wasserstein distance for each sample in the batch
-        # C: batch_size x n x m
-        bs = C.size(0)
-        T = self.IPOT_torch_batch(C, n, m, miu, nu)
-        distance = torch.sum(T * C, dim=(1, 2))  # batch_size
-        return -distance  # Negative distance to minimize
     
 class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCodingCVKM):
     """
-    Extension to the CMC-CVKM to include local transformers and deep alignment loss for the local information.
+    Extension to the CMC-CVKM to include encoders that handle both global and local representations.
     """
     def __init__(
         self,
@@ -291,60 +311,33 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
             **kwargs)
 
         self.local_transformers = nn.ModuleDict(local_transformers)
+
         self.deep_alignment_loss_fn = DeepAlignmentLoss(modalities)
         
-
-    # def on_fit_start(self):
-    #     for m in self.modalities:
-    #         if m in self.similarity_metrics:
-    #             self.similarity_metrics[m].move_to_device(self.device)
-    #             self.similarity_metrics[m].set_dataset(self.trainer.datamodule.train_dataloader().dataset)
-
-
-    #FABIAN override forward method to include deep alignment method
-    
-    def forward(self, x):
-        adjusted_x = {}
+    def forward(self, batch):
         for m in self.modalities:
-            if m == 'inertial':
-                x_inertial = x[m]  
-                # For the encoder, use as is
-                x_inertial_encoder = x_inertial
-                # For the local transformer (STDAT), keep as is
-                #print(f"x_inertial shape before permutation: {x_inertial.shape}")
-                x_inertial_local = x_inertial.permute(0, 2, 1)  # [64, 50, 6]
-                #print(f"x_inertial shape after permutation: {x_inertial.shape}")
-                adjusted_x[m] = {'encoder_input': x_inertial_encoder, 'local_transformer_input': x_inertial_local}
-            elif m == 'skeleton':
-                x_skeleton = x[m] # Shape: [64, 3, 50, 20]
-                x_skeleton_encoder = x_skeleton
-                # For the local transformer, permute to [B, F, J, C] = [64, 50, 20, 3]
-                x_skeleton_local = x_skeleton.permute(0, 2, 3, 1)
-                adjusted_x[m] = {'encoder_input': x_skeleton_encoder, 'local_transformer_input': x_skeleton_local}
-            else:
-                adjusted_x[m] = {'encoder_input': x[m], 'local_transformer_input': x[m]}
-        
-        h = {}
+            batch[m] = batch[m].to(self.device)
+
+        global_features = {}
+        local_features = {}
+
         for m in self.modalities:
-            x_modality = adjusted_x[m]['encoder_input']
-            #print(f"Global Encoder Input Shape ({m}): {x_modality.shape}")
-            h[m] = self.encoders[m](x_modality)
-            h[m] = h[m].reshape(h[m].size(0), -1)
-            #print(f"Flattened Encoder Output Shape ({m}): {h[m].shape}")
+            # Use the global encoder
+            global_feat, _ = self.encoders[m](batch[m])
+            global_features[m] = global_feat
+
+            # Use the local transformer
+            _, local_feat = self.local_transformers[m](batch[m])
+            local_features[m] = local_feat
+
+        # Apply projection for contrastive learning if needed
         z = {}
         for m in self.modalities:
-            z[m] = self.projections[m](h[m])
-        global_features = z  
-        
-        local_features = {}
-        for m in self.modalities:
-            x_modality = adjusted_x[m]['local_transformer_input']
-            #print(f"Local Transformer Input Shape ({m}): {x_modality.shape}")
-            local_features[m] = self.local_transformers[m](x_modality)
-        
+            z[m] = self.projections[m](global_features[m])
+        global_features = z
+
         return global_features, local_features
     
-    #FABIAN modified training step to include deep alignment loss
     def training_step(self, batch, batch_idx):
         for m in self.modalities:
             batch[m] = batch[m].float()

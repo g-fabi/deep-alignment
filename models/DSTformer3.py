@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 from collections import OrderedDict
-from models.drop import DropPath  
+from models.drop import DropPath
 
 def trunc_normal_(tensor, mean=0., std=1.):
     nn.init.trunc_normal_(tensor, mean=mean, std=std)
@@ -29,10 +29,9 @@ class MLP(nn.Module):
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False,
-                 attn_drop=0., proj_drop=0., attention_type='spatial'):
+                 attn_drop=0., proj_drop=0.):
         super().__init__()
         self.num_heads = num_heads
-        self.attention_type = attention_type
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
 
@@ -55,22 +54,25 @@ class Attention(nn.Module):
         return x
 
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=True,
-                 drop=0., attn_drop=0., drop_path=0.,
-                 norm_layer=nn.LayerNorm, attention_type='spatial'):
-        super().__init__()
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=True, drop=0.,
+                 attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm):
+        super(Block, self).__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias,
-                              attn_drop=attn_drop, proj_drop=drop,
-                              attention_type=attention_type)
+                              attn_drop=attn_drop, proj_drop=drop)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.mlp = MLP(in_features=dim, hidden_features=int(dim * mlp_ratio),
                        act_layer=nn.GELU, drop=drop)
 
     def forward(self, x):
-        x = x + self.drop_path(self.attn(self.norm1(x)))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        # x: [Seq Length, Batch, dim]
+        x_norm = self.norm1(x)
+        attn_output = self.attn(x_norm)
+        x = x + self.drop_path(attn_output)
+        x_norm = self.norm2(x)
+        mlp_output = self.mlp(x_norm)
+        x = x + self.drop_path(mlp_output)
         return x
 
 class DSTformer(nn.Module):
@@ -78,30 +80,7 @@ class DSTformer(nn.Module):
                  depth=5, num_heads=8, num_joints=20, maxlen=50,
                  mlp_ratio=4., drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
                  norm_layer=nn.LayerNorm):
-        """
-        DSTformer for processing skeleton data.
-
-        Args:
-            dim_in (int): Input feature dimension per joint.
-            dim_feat (int): Feature dimension after embedding.
-            dim_rep (int): Representation dimension after pre-logits.
-            depth (int): Number of transformer blocks.
-            num_heads (int): Number of attention heads.
-            num_joints (int): Number of joints in the skeleton.
-            maxlen (int): Maximum sequence length.
-            mlp_ratio (float): MLP ratio in transformer blocks.
-            drop_rate (float): Dropout rate.
-            attn_drop_rate (float): Attention dropout rate.
-            drop_path_rate (float): Drop path rate.
-            norm_layer (nn.Module): Normalization layer.
-        """
-        # print(f"Initializing DSTformer with dim_in={dim_in}, dim_feat={dim_feat}, "
-        #       f"dim_rep={dim_rep}, depth={depth}, num_heads={num_heads}, "
-        #       f"num_joints={num_joints}, maxlen={maxlen}, mlp_ratio={mlp_ratio}, "
-        #       f"drop_rate={drop_rate}, attn_drop_rate={attn_drop_rate}, "
-        #       f"drop_path_rate={drop_path_rate}")
-        
-        super().__init__()
+        super(DSTformer, self).__init__()
         self.dim_feat = dim_feat
         self.dim_rep = dim_rep
         self.num_joints = num_joints
@@ -109,32 +88,44 @@ class DSTformer(nn.Module):
 
         self.joints_embed = nn.Linear(dim_in, dim_feat)
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.spatial_pos_embed = nn.Parameter(torch.zeros(1, num_joints, dim_feat))
-        self.temporal_pos_embed = nn.Parameter(torch.zeros(1, maxlen, dim_feat))
+
+        # Learnable [CLS] tokens
+        self.cls_token_spatial = nn.Parameter(torch.zeros(1, 1, dim_feat))
+        self.cls_token_temporal = nn.Parameter(torch.zeros(1, 1, dim_feat))
+        trunc_normal_(self.cls_token_spatial, std=.02)
+        trunc_normal_(self.cls_token_temporal, std=.02)
+
+        # Positional Embeddings
+        self.spatial_pos_embed = nn.Parameter(torch.zeros(1, num_joints + 1, dim_feat))
+        self.temporal_pos_embed = nn.Parameter(torch.zeros(1, maxlen + 1, dim_feat))
         trunc_normal_(self.spatial_pos_embed, std=.02)
         trunc_normal_(self.temporal_pos_embed, std=.02)
+
+        self.out_size = dim_rep
 
         self.blocks_spatial = nn.ModuleList([
             Block(dim=dim_feat, num_heads=num_heads,
                   mlp_ratio=mlp_ratio, qkv_bias=True,
                   drop=drop_rate, attn_drop=attn_drop_rate,
-                  drop_path=drop_path_rate, norm_layer=norm_layer,
-                  attention_type='spatial')
+                  drop_path=drop_path_rate, norm_layer=norm_layer)
             for _ in range(depth)
         ])
         self.blocks_temporal = nn.ModuleList([
             Block(dim=dim_feat, num_heads=num_heads,
                   mlp_ratio=mlp_ratio, qkv_bias=True,
                   drop=drop_rate, attn_drop=attn_drop_rate,
-                  drop_path=drop_path_rate, norm_layer=norm_layer,
-                  attention_type='temporal')
+                  drop_path=drop_path_rate, norm_layer=norm_layer)
             for _ in range(depth)
         ])
-        self.norm = norm_layer(dim_feat)
+
+        self.norm_spatial = norm_layer(dim_feat)
+        self.norm_temporal = norm_layer(dim_feat)
+
         self.pre_logits = nn.Sequential(OrderedDict([
             ('fc', nn.Linear(dim_feat, dim_rep)),
             ('act', nn.Tanh())
         ]))
+
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -144,52 +135,72 @@ class DSTformer(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        """
-        Forward pass for DSTformer.
+        print(f"x device: {x.device}")
+        print(f"self.joints_embed.weight device: {self.joints_embed.weight.device}")
+        # x: [B, C, T, J]
+        print(f"Initial x shape: {x.shape}")
+        B, C, T, J = x.shape
 
-        Args:
-            x (torch.Tensor): Input tensor of shape [B, T, J, C=3]
+        # Permute to [B, T, J, C]
+        x = x.permute(0, 2, 3, 1)
+        print(f"x after permute: {x.shape}")
 
-        Returns:
-            spatial_tokens (torch.Tensor): Spatial tokens of shape [B, J, dim_rep]
-            temporal_tokens (torch.Tensor): Temporal tokens of shape [B, T, dim_rep]
-        """
-        B, T, J, C = x.shape  # [Batch, Time, Joints, Channels]
-        if T > self.maxlen:
-            raise ValueError(f"Sequence length {T} exceeds maxlen {self.maxlen}")
+        B, T, J, C = x.shape
+        x = x.reshape(B * T, J, C)  # [B*T, J, C]
 
-        x = self.joints_embed(x)  # [B, T, J, dim_feat]
+        # Apply joints_embed per joint
+        x = self.joints_embed(x)  # [B*T, J, dim_feat]
+        print(f"x after joints_embed: {x.shape}")
+
+        x = x.view(B, T, J, self.dim_feat)  # [B, T, J, dim_feat]
+        print(f"x reshaped to [B, T, J, dim_feat]: {x.shape}")
+
         x = self.pos_drop(x)
 
-        
-        x_spatial = x + self.spatial_pos_embed.unsqueeze(1)  # [B, T, J, dim_feat]
-        #print(f"After adding spatial_pos_embed Shape: {x_spatial.shape}")  # [64, 50, 20, 256]
-        
-        # spatial transformer combine batch and time
-        x_spatial = x_spatial.view(B * T, J, self.dim_feat)  # [B*T, J, dim_feat]
- 
+        # Spatial Processing
+        cls_tokens_spatial = self.cls_token_spatial.expand(B, T, 1, -1)  # [B, T, 1, dim_feat]
+        x = torch.cat((cls_tokens_spatial, x), dim=2)  # [B, T, J + 1, dim_feat]
+        x = x + self.spatial_pos_embed.unsqueeze(0).unsqueeze(0)  # Broadcast over B and T
+
+        x = x.view(B * T, self.num_joints + 1, self.dim_feat).permute(1, 0, 2)  # [J + 1, B*T, dim_feat]
         for blk in self.blocks_spatial:
-            x_spatial = blk(x_spatial)      # [B*T, J, dim_feat]
-        x_spatial = self.norm(x_spatial)    # [B*T, J, dim_feat]
-        x_spatial = x_spatial.view(B, T, J, self.dim_feat)       # back to [B, T, J, dim_feat]
-        
-        # aggregate over the time dimension to obtain spatial tokens
-        spatial_tokens = self.pre_logits(x_spatial.mean(dim=1))  # [B, J, dim_rep]
-        #print(f"Spatial Tokens Shape: {spatial_tokens.shape}")  # [64, 20, 256]
-        
-        x_temporal = x + self.temporal_pos_embed[:, :T, :].unsqueeze(2)         # [B, T, J, dim_feat]
-        #print(f"After adding temporal_pos_embed Shape: {x_temporal.shape}")     # [64, 50, 20, 256]
-        
-        # temporal transformer combine batch and joints
-        x_temporal = x_temporal.view(B * J, T, self.dim_feat)  # [B*J, T, dim_feat]
+            x = blk(x)
+        x = x.permute(1, 0, 2).contiguous()  # [B*T, J + 1, dim_feat]
+        x = self.norm_spatial(x)
+        spatial_tokens = x.view(B, T, self.num_joints + 1, self.dim_feat)
+        print(f"spatial_tokens shape: {spatial_tokens.shape}")
+
+        # Extract [CLS] token for spatial global features
+        cls_spatial_output = spatial_tokens[:, :, 0, :]  # [B, T, dim_feat]
+        spatial_global = self.pre_logits(cls_spatial_output.mean(dim=1))  # [B, dim_rep]
+
+        # Temporal Processing
+        x = spatial_tokens[:, :, 1:, :]  # Exclude [CLS] token; [B, T, J, dim_feat]
+        x = x.permute(0, 2, 1, 3)  # [B, J, T, dim_feat]
+        x = x.reshape(B * J, T, self.dim_feat)  # [B*J, T, dim_feat]
+
+        cls_tokens_temporal = self.cls_token_temporal.expand(B * J, 1, -1)  # [B*J, 1, dim_feat]
+        x = torch.cat((cls_tokens_temporal, x), dim=1)  # [B*J, T + 1, dim_feat]
+        x = x + self.temporal_pos_embed[:, :T + 1, :].repeat(B * J, 1, 1)
+        x = x.permute(1, 0, 2)  # [T + 1, B*J, dim_feat]
 
         for blk in self.blocks_temporal:
-            x_temporal = blk(x_temporal)        # [B*J, T, dim_feat]
-        x_temporal = self.norm(x_temporal)      # [B*J, T, dim_feat]
-        x_temporal = x_temporal.view(B, J, T, self.dim_feat)    # back to [B, J, T, dim_feat]
-        
-        # aggregate over the joints dimension to obtain temporal tokens
-        temporal_tokens = self.pre_logits(x_temporal.mean(dim=1))  # [B, T, dim_rep]
-        #print(f"Temporal Tokens Shape: {temporal_tokens.shape}")  # [64, 50, 256]
+            x = blk(x)
+        x = x.permute(1, 0, 2).contiguous()  # [B*J, T + 1, dim_feat]
+        x = self.norm_temporal(x)
 
-        return spatial_tokens, temporal_tokens  # [B, J=20, dim_rep=256], [B, T=50, dim_rep=256]
+        temporal_tokens = x.view(B, J, T + 1, self.dim_feat)
+        print(f"temporal_tokens shape: {temporal_tokens.shape}")
+
+        # Extract [CLS] token for temporal global features
+        cls_temporal_output = temporal_tokens[:, :, 0, :]  # [B, J, dim_feat]
+        temporal_global = self.pre_logits(cls_temporal_output.mean(dim=1))  # [B, dim_rep]
+
+        global_features = spatial_global + temporal_global  # [B, dim_rep]
+
+        local_features = {
+            'spatial_tokens': spatial_tokens,      # [B, T, J + 1, dim_feat]
+            'temporal_tokens': temporal_tokens     # [B, J, T + 1, dim_feat]
+        }
+
+        return global_features, local_features
