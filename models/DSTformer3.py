@@ -85,6 +85,7 @@ class DSTformer(nn.Module):
         self.dim_rep = dim_rep
         self.num_joints = num_joints
         self.maxlen = maxlen
+        print(f"Initializing DSTformer with maxlen={maxlen}")
 
         self.joints_embed = nn.Linear(dim_in, dim_feat)
         self.pos_drop = nn.Dropout(p=drop_rate)

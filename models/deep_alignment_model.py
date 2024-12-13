@@ -11,6 +11,8 @@ from torch.autograd import Variable
 
 from utils.training_utils import init_encoders, init_local_transformer
 
+from models.cmc_cvkm import MM_NTXent_CVKM
+
 class MM_NTXent_CVKM(LightningModule):
     """
     Multimodal adaptation of NTXent, which uses cross-view knowledge mining
@@ -36,10 +38,10 @@ class MM_NTXent_CVKM(LightningModule):
 
     def forward(self, features, batch, training, batch_idx):
         # Let M1 and M2 be abbreviations for the first and the second modality, respectively.
-        N = self.batch_size
 
         # Computes cosine similarity matrix, shape: (N, N).
         # This computes the similarity between each sample in M1 with each sample in M2.
+        N = features[self.modalities[0]].size(0)
         features_1 = features[self.modalities[0]]
         features_2 = features[self.modalities[1]]
         similarity_matrix = MM_NTXent_CVKM.get_cosine_sim_matrix(features_1, features_2)
@@ -54,7 +56,7 @@ class MM_NTXent_CVKM(LightningModule):
         # The rest are similarities for negative pairs.
         positives_mask = torch.eye(N).bool().repeat([2, 1]).to(self.device)
         negatives_mask = ~positives_mask
-
+        print("[Debug] positives_mask:", positives_mask.shape, positives_mask.device, positives_mask.dtype)
         # TODO maybe: build a big matrix with all 4 similarities, like the diagram in the paper? maybe it would simplify some of this logic.
 
         # Cross-view knowledge mining, only applied during training and depending on the provided cmkm_config.
@@ -75,7 +77,20 @@ class MM_NTXent_CVKM(LightningModule):
                         self.modalities[1]: merged_indices
                     }
 
-                # Add them to the positive set and exclude them from the negative set.
+                # Debug: Check shapes, devices, dtypes
+                print("[Debug] positive_indices[mod1]:", positive_indices[self.modalities[1]].shape,
+                      positive_indices[self.modalities[1]].device, positive_indices[self.modalities[1]].dtype)
+                print("[Debug] torch.arange(N):", torch.arange(N).shape, torch.arange(N).device, torch.arange(N).dtype)
+                
+                # Ensure that positive_indices are on the same device as positives_mask
+                positive_indices[self.modalities[0]] = positive_indices[self.modalities[0]].to(positives_mask.device)
+                positive_indices[self.modalities[1]] = positive_indices[self.modalities[1]].to(positives_mask.device)
+
+                positives_mask[torch.arange(N, device=positives_mask.device).unsqueeze(1), positive_indices[self.modalities[1]]] = True
+                negatives_mask[torch.arange(N, device=positives_mask.device).unsqueeze(1), positive_indices[self.modalities[1]]] = False
+                positives_mask[torch.arange(N, 2*N, device=positives_mask.device).unsqueeze(1), positive_indices[self.modalities[0]]] = True
+                negatives_mask[torch.arange(N, 2*N, device=positives_mask.device).unsqueeze(1), positive_indices[self.modalities[0]]] = False
+
                 positives_mask[torch.arange(N).unsqueeze(1), positive_indices[self.modalities[1]]] = True
                 negatives_mask[torch.arange(N).unsqueeze(1), positive_indices[self.modalities[1]]] = False
                 positives_mask[torch.arange(N, 2*N).unsqueeze(1), positive_indices[self.modalities[0]]] = True
@@ -89,6 +104,9 @@ class MM_NTXent_CVKM(LightningModule):
                     self.modalities[0]: connectivity[self.modalities[0]] > gamma,
                     self.modalities[1]: connectivity[self.modalities[1]] > gamma
                 }
+                # Debug: Check pruned_negative_indices
+                print("[Debug] pruned_negative_indices[mod1]:", pruned_negative_indices[self.modalities[1]].shape,
+                      pruned_negative_indices[self.modalities[1]].device, pruned_negative_indices[self.modalities[1]].dtype)
 
                 # Exclude them from the negative sets of each modality.
                 negatives_mask[torch.arange(N).unsqueeze(1), pruned_negative_indices[self.modalities[1]]] = False
@@ -150,8 +168,18 @@ class MM_NTXent_CVKM(LightningModule):
     def compute_intra_modality_similarities(self, features, batch, batch_idx):
         """For each modality, returns an [N, N]-shaped tensor of intramodality similarities using the provided similarity metric."""
         intra_modality_similarities = {}
-        for modality in features:
-            intra_modality_similarities[modality] = self.similarity_metrics[modality].compute_similarity_matrix(batch, batch_idx)
+        if self.similarity_metrics:
+            for modality in features:
+                intra_modality_similarities[modality] = \
+                    self.similarity_metrics[modality].compute_similarity_matrix(batch, batch_idx)
+        else:
+            for modality in features:
+                feats = features[modality]
+                # Normalize the features
+                feats = F.normalize(feats, dim=1)
+                # Compute cosine similarity matrix
+                sim_matrix = torch.matmul(feats, feats.T)
+                intra_modality_similarities[modality] = sim_matrix
         return intra_modality_similarities
 
     def compute_connectivity(self, intra_modality_similarities):
@@ -166,11 +194,13 @@ class MM_NTXent_CVKM(LightningModule):
         Uses the provided similarity metric to find potential positives based on intra-modal similarity.
         For each modality, returns an [N, K]-shaped tensor of indices.
         """
+        N = intra_modality_similarities[self.modalities[0]].size(0)
         positive_indices = {}
-        mask = torch.eye(self.batch_size, device=self.device)
+        mask = torch.eye(N, device=self.device)
         for modality in self.modalities:
             # Mask out the main diagonal (which are all equal to 1) and compute the topK highest similarities.
             topk_indices = torch.topk(intra_modality_similarities[modality] - mask, k=K).indices
+
             positive_indices[modality] = topk_indices
         return positive_indices
 
@@ -278,6 +308,137 @@ class DeepAlignmentLoss(nn.Module):
             sigma = nu / (torch.bmm(Q.transpose(1, 2), delta) + 1e-6)
             T = delta * Q * sigma.transpose(1, 2)  # [bs, n, m]
         return T.detach()
+
+class CustomMM_NTXent_CVKM(MM_NTXent_CVKM):
+    def forward(self, features, batch, training, batch_idx):
+        # Derive N from actual batch size
+        N = features[self.modalities[0]].size(0)
+        device = features[self.modalities[0]].device
+        print(f"[Debug] Batch size (N): {N}")
+        print(f"[Debug] Device: {device}")
+
+        features_1 = features[self.modalities[0]]
+        features_2 = features[self.modalities[1]]
+        similarity_matrix = self.get_cosine_sim_matrix(features_1, features_2)
+        print(f"[Debug] similarity_matrix shape: {similarity_matrix.shape}")
+
+        inter_modality_similarities = torch.cat([similarity_matrix, similarity_matrix.T], dim=0)
+        print(f"[Debug] inter_modality_similarities shape: {inter_modality_similarities.shape}")
+
+        positives_mask = torch.eye(N).bool().repeat(2, 1).to(device)
+        negatives_mask = ~positives_mask
+        print(f"[Debug] positives_mask shape: {positives_mask.shape}, device: {positives_mask.device}, dtype: {positives_mask.dtype}")
+        print(f"[Debug] negatives_mask shape: {negatives_mask.shape}, device: {negatives_mask.device}, dtype: {negatives_mask.dtype}")
+
+        if training:
+            cmkm_config = self.cmkm_config
+            if (cmkm_config.get('positive_mining_enabled', False) or
+                cmkm_config.get('negative_set_pruning_enabled', False) or
+                cmkm_config.get('loss_term_weighing_enabled', False)):
+                intra_modality_similarities = self.compute_intra_modality_similarities(features, batch, batch_idx)
+                connectivity = self.compute_connectivity(intra_modality_similarities)
+
+            if cmkm_config.get('positive_mining_enabled', False):
+                positive_mining_k = cmkm_config.get('positive_mining_k', 1)
+                positive_indices = self.mine_positives(intra_modality_similarities, K=positive_mining_k)
+
+                if cmkm_config.get('positive_mining_symmetric', False):
+                    merged_indices = torch.cat([positive_indices[self.modalities[0]], positive_indices[self.modalities[1]]], dim=1)
+                    positive_indices = {
+                        self.modalities[0]: merged_indices,
+                        self.modalities[1]: merged_indices
+                    }
+
+                print(f"[Debug] positive_indices[{self.modalities[1]}] shape:", positive_indices[self.modalities[1]].shape,
+                      positive_indices[self.modalities[1]].device, positive_indices[self.modalities[1]].dtype)
+                print(f"[Debug] positive_indices[{self.modalities[1]}]: {positive_indices[self.modalities[1]]}")
+                print(f"[Debug] torch.arange(N).unsqueeze(1).shape:", torch.arange(N).unsqueeze(1).shape,
+                      torch.arange(N).unsqueeze(1).device, torch.arange(N).unsqueeze(1).dtype)
+                print(f"[Debug] positives_mask.shape:", positives_mask.shape)
+
+                # Ensure same device and dtype
+                positive_indices[self.modalities[0]] = positive_indices[self.modalities[0]].to(device)
+                positive_indices[self.modalities[1]] = positive_indices[self.modalities[1]].to(device)
+
+                try:
+                    positives_mask[torch.arange(N, device=device), positive_indices[self.modalities[1]]] = True
+                    negatives_mask[torch.arange(N, device=device), positive_indices[self.modalities[1]]] = False
+                    positives_mask[torch.arange(N, 2*N, device=device), positive_indices[self.modalities[0]]] = True
+                    negatives_mask[torch.arange(N, 2*N, device=device), positive_indices[self.modalities[0]]] = False
+                except Exception as e:
+                    print(f"[Error] Exception during positive mining indexing: {e}")
+                    print(f"[Debug] positives_mask size: {positives_mask.size()}")
+                    print(f"[Debug] negatives_mask size: {negatives_mask.size()}")
+                    print(f"[Debug] positive_indices[{self.modalities[1]}] size: {positive_indices[self.modalities[1]].size()}")
+                    print(f"[Debug] positive_indices[{self.modalities[0]}] size: {positive_indices[self.modalities[0]].size()}")
+                    raise e
+
+            if cmkm_config.get('negative_set_pruning_enabled', False):
+                gamma = cmkm_config.get('negative_set_pruning_threshold', 0.5)
+                pruned_negative_indices = {
+                    self.modalities[0]: connectivity[self.modalities[0]] > gamma,
+                    self.modalities[1]: connectivity[self.modalities[1]] > gamma
+                }
+
+                print(f"[Debug] pruned_negative_indices[{self.modalities[1]}] shape:", pruned_negative_indices[self.modalities[1]].shape,
+                      pruned_negative_indices[self.modalities[1]].device, pruned_negative_indices[self.modalities[1]].dtype)
+                print(f"[Debug] pruned_negative_indices[{self.modalities[1]}]:", pruned_negative_indices[self.modalities[1]])
+
+                # Ensure same device
+                pruned_negative_indices[self.modalities[0]] = pruned_negative_indices[self.modalities[0]].to(device)
+                pruned_negative_indices[self.modalities[1]] = pruned_negative_indices[self.modalities[1]].to(device)
+
+                try:
+                    negatives_mask[torch.arange(N, device=device).unsqueeze(1), pruned_negative_indices[self.modalities[1]]] = False
+                    negatives_mask[torch.arange(N, 2*N, device=device).unsqueeze(1), pruned_negative_indices[self.modalities[0]]] = False
+                except Exception as e:
+                    print(f"[Error] Exception during negative set pruning indexing: {e}")
+                    raise e
+
+        mean_positive_similarities = torch.mean(inter_modality_similarities[positives_mask])
+        mean_negative_similarities = torch.mean(inter_modality_similarities[negatives_mask])
+        print(f"[Debug] mean_positive_similarities: {mean_positive_similarities.item()}")
+        print(f"[Debug] mean_negative_similarities: {mean_negative_similarities.item()}")
+
+        inter_modality_similarities = inter_modality_similarities / self.temperature
+        exp_similarities = torch.exp(inter_modality_similarities)
+        numerators = torch.sum(exp_similarities * positives_mask, dim=1)
+        denominators = torch.sum(exp_similarities * negatives_mask, dim=1)
+
+        if training and (self.cmkm_config.get('intra_modality_negatives_enabled', False) or
+                         self.cmkm_config.get('positive_mining_enabled', False)):
+            intra_modality_similarities_1 = self.get_cosine_sim_matrix(features_1, features_1)
+            intra_modality_similarities_2 = self.get_cosine_sim_matrix(features_2, features_2)
+            intra_modality_exp_similarities = torch.exp(torch.cat([intra_modality_similarities_1, intra_modality_similarities_2], dim=0)).to(device)
+
+        if training and self.cmkm_config.get('intra_modality_negatives_enabled', False):
+            intra_modality_negatives = ~(torch.eye(N).bool()).repeat(2, 1).to(device)
+
+            if self.cmkm_config.get('positive_mining_enabled', False):
+                intra_modality_negatives[torch.arange(N, device=device).unsqueeze(1), positive_indices[self.modalities[0]]] = False
+                intra_modality_negatives[torch.arange(N, 2*N, device=device).unsqueeze(1), positive_indices[self.modalities[1]]] = False
+
+            if self.cmkm_config.get('negative_set_pruning_enabled', False):
+                intra_modality_negatives[torch.arange(N, device=device).unsqueeze(1), pruned_negative_indices[self.modalities[0]]] = False
+                intra_modality_negatives[torch.arange(N, 2*N, device=device).unsqueeze(1), pruned_negative_indices[self.modalities[1]]] = False
+
+            lambda_ = self.cmkm_config.get('intra_modality_negatives_weight', 1.0)
+            denominators += lambda_ * torch.sum(intra_modality_exp_similarities * intra_modality_negatives, dim=1)
+
+        if training and self.cmkm_config.get('positive_mining_enabled', False) and self.cmkm_config.get('intra_modality_negatives_enabled', False):
+            intra_modality_positives = torch.zeros(2*N, N, dtype=torch.bool, device=device)
+            intra_modality_positives[torch.arange(N, device=device).unsqueeze(1), positive_indices[self.modalities[0]]] = True
+            intra_modality_positives[torch.arange(N, 2*N, device=device).unsqueeze(1), positive_indices[self.modalities[1]]] = True
+            numerators += torch.sum(intra_modality_exp_similarities * intra_modality_positives, dim=1)
+
+        losses_per_sample = -torch.log(numerators / (numerators + denominators))
+
+        if training and self.cmkm_config.get('loss_term_weighing_enabled', False):
+            weights = self.compute_loss_term_weights(connectivity, scale=self.cmkm_config.get('loss_term_weighing_scale', 0.05))
+            losses_per_sample = losses_per_sample * weights
+
+        final_loss = torch.mean(losses_per_sample)
+        return final_loss, mean_positive_similarities, mean_negative_similarities
     
 class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCodingCVKM):
     """
@@ -314,6 +475,18 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
 
         self.deep_alignment_loss_fn = DeepAlignmentLoss(modalities)
         
+        self.loss = CustomMM_NTXent_CVKM(
+            batch_size=batch_size,
+            modalities=modalities,
+            similarity_metrics=similarity_metrics,
+            cmkm_config=cmkm_config,
+            temperature=temperature
+        )
+        
+    def on_fit_start(self):
+        for m in self.similarity_metrics:
+            self.similarity_metrics[m].move_to_device(self.device)
+
     def forward(self, batch):
         for m in self.modalities:
             batch[m] = batch[m].to(self.device)
@@ -341,9 +514,19 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
     def training_step(self, batch, batch_idx):
         for m in self.modalities:
             batch[m] = batch[m].float()
-            
+        
         global_features, local_features = self(batch)
         
+        # Include global features in the batch for RawSimilarityMetric
+        batch['global_features'] = global_features
+        
+        # Debugging: Check shapes
+        N = batch[self.modalities[0]].size(0)
+        print(f"\n[Debug] Batch size (N): {N}")
+        for m in self.modalities:
+            print(f"[Debug] Global features [{m}] shape: {global_features[m].shape}, device: {global_features[m].device}, dtype: {global_features[m].dtype}")
+            print(f"[Debug] Batch data [{m}] shape: {batch[m].shape}, device: {batch[m].device}, dtype: {batch[m].dtype}")
+
         loss_cmc_cmkm, pos, neg = self.loss(global_features, batch, training=True, batch_idx=batch_idx)
         loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
         total_loss = loss_cmc_cmkm + loss_deep_alignment
@@ -360,7 +543,9 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
             batch[m] = batch[m].float()
         
         global_features, local_features = self(batch)
-        loss_cmc_cmkm, _, _ = self.loss(global_features, batch, training = False, batch_idx = batch_idx)
+        batch['global_features'] = global_features
+
+        loss_cmc_cmkm, _, _ = self.loss(global_features, batch, training=False, batch_idx=batch_idx)
         loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
         total_loss = loss_cmc_cmkm + loss_deep_alignment
         

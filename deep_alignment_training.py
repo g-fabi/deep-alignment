@@ -4,7 +4,7 @@ import random
 from pytorch_lightning import Trainer, seed_everything
 from models.cmc import ContrastiveMultiviewCoding
 from models.cmc_cvkm import ContrastiveMultiviewCodingCVKM
-from models.deep_alignment_model import ContrastiveMultiviewCodingCVKMWithDeepAlignment
+from models.deep_alignment_model import ContrastiveMultiviewCodingCVKMWithDeepAlignment, RawSimilarityMetric
 from models.multimodal import MultiModalClassifier
 from models.similarity_metrics.latent_space_similarity import LatentSpaceSimilarity
 
@@ -111,7 +111,13 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
         model = ContrastiveMultiviewCodingCVKM(modalities, encoders, similarity_metrics, **ssl_cfg['kwargs'])
     elif args.framework == 'cmc-cmkm-deep-alignment':
-        similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
+        similarity_metrics = init_similarity_metrics(
+            args,
+            modalities,
+            ssl_cfg,
+            dataset_cfg,
+            encoders
+        )
         cmkm_config = ssl_cfg['kwargs']['cmkm_config']
         hidden = ssl_cfg['kwargs'].get('hidden', [256, 128])
         batch_size = ssl_cfg['kwargs'].get('batch_size', 64)
@@ -144,7 +150,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=1,
+                                         gpus=[1],
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs',
@@ -195,7 +201,7 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=1,
+                                         gpus=[1],
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs', 
@@ -214,14 +220,14 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
 
     return metrics
 
-def init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg):
+def init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg, encoders=None):
     SUPPORTED_SIMILARITY_METRICS = ["pretrained_encoder", "raw_similarities"]
     SUPPORTED_MODALITIES = ["inertial", "skeleton"]
 
     cmkm_config = ssl_cfg['kwargs']['cmkm_config']
     
     if cmkm_config['similarity_metric'] not in SUPPORTED_SIMILARITY_METRICS:
-        print("cmkm_config['similarity_metric'] must be one of 'pretrained_encoder' or 'raw_similarities'!")
+        print(f"cmkm_config['similarity_metric'] must be one of {SUPPORTED_SIMILARITY_METRICS}!")
         exit(1)
 
     if set(modalities) != set(SUPPORTED_MODALITIES):
@@ -229,8 +235,10 @@ def init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg):
         exit(1)
 
     similarity_metrics = {}
-
-    if cmkm_config['similarity_metric'] == "pretrained_encoder":
+    if cmkm_config['similarity_metric'] == "raw_similarities":
+        for modality in modalities:
+            similarity_metrics[modality] = RawSimilarityMetric(modality)
+    else:
         for i, m in enumerate(modalities):
             pretrained_encoder_cfg = load_yaml_to_dict(args.cmkm_pretrained_encoders_config_paths[i])['modalities'][m]['global_encoder'][args.models[i]]
             pretrained_encoder_cfg['kwargs'] = {**dataset_cfg[m], **pretrained_encoder_cfg['kwargs']}

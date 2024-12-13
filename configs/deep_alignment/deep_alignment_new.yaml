@@ -4,14 +4,14 @@ experiment:
   seed: 28
   num_epochs_ssl: 100
   num_epochs_fine_tuning: 100
-  batch_size_fine_tuning: 64
+  batch_size_fine_tuning: 16
 
 ssl:
   args: []
   kwargs:
     temperature: 0.1
-    sample_length: 50
-    batch_size: 64
+    sample_length: 25
+    batch_size: 16
     hidden: [256, 128]
     lr: 0.001
     optimizer_name_ssl: "adam"

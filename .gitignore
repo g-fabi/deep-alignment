@@ -26,3 +26,6 @@ datasets/opportunity_aligned.py
 
 ssl_da_env/
 multimodal_har_datasets
+get-pip.py
+virtualenv.pyz
+.cursorrules
