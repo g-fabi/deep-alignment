@@ -78,9 +78,13 @@ class STDAT(nn.Module):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
+                
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
 
     def forward(self, x):
-        print(f"x device: {x.device}")
+        # print(f"x device: {x.device}")
         x = x.to(self.cls_token_temporal.device)
         """
         Forward pass for STDAT.
@@ -93,7 +97,7 @@ class STDAT(nn.Module):
             local_features (dict): Local features including spatial and temporal tokens
         """
         # x: [B, T, C=6]
-        print(f"x shape: {x.shape}")
+        # print(f"x shape: {x.shape}")
         B, T, C = x.shape
         x_proj = self.input_projection(x)  # [B, T, d_model]
         x_proj = self.pos_drop(x_proj)
@@ -125,8 +129,8 @@ class STDAT(nn.Module):
         x_spatial = self.input_projection(x.mean(dim=1))  # [B, d_model]
         x_spatial = x_spatial.unsqueeze(1)  # [B, 1, d_model]
         cls_tokens_spatial = self.cls_token_spatial.expand(B, -1, -1)  # [B, 1, d_model]
-        print(f"cls_tokens_spatial shape: {cls_tokens_spatial.shape}")  # [B, 1, d_model]
-        print(f"x_spatial shape: {x_spatial.shape}")  # [B, 1, d_model]
+        # print(f"cls_tokens_spatial shape: {cls_tokens_spatial.shape}")  # [B, 1, d_model]
+        # print(f"x_spatial shape: {x_spatial.shape}")  # [B, 1, d_model]
         x_spatial = torch.cat((cls_tokens_spatial, x_spatial), dim=1)  # [B, 2, d_model]
         x_spatial = x_spatial + self.spatial_pos_embed[:, :x_spatial.shape[1], :]  # [B, 2, d_model]
         x_spatial = self.pos_drop(x_spatial)

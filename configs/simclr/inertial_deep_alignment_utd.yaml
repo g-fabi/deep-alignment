@@ -14,7 +14,7 @@ modalities:
         encoder_name: cnn_transformer
         args: []
         kwargs:
-          sample_length: 25
+          sample_length: 50
           kernel_size: 5
           out_channels: [32, 64, 128]
           num_head: 2
@@ -28,7 +28,7 @@ modalities:
       args: []
       kwargs:
         imu_feature_count: 6  
-        max_seq_len: 25
+        max_seq_len: 50
         d_model: 128
         depth: 5
         num_heads: 8
@@ -40,7 +40,7 @@ modalities:
         transform_name: sampling
         in_test: true
         kwargs:
-          size: 25
+          size: 50
       - class_name: ToTensor
         from_module: general_transforms
         transform_name: to_tensor

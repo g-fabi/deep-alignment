@@ -2,16 +2,16 @@
 
 experiment:
   seed: 28
-  num_epochs_ssl: 100
-  num_epochs_fine_tuning: 100
-  batch_size_fine_tuning: 16
+  num_epochs_ssl: 10
+  num_epochs_fine_tuning: 10
+  batch_size_fine_tuning: 32
 
 ssl:
   args: []
   kwargs:
     temperature: 0.1
-    sample_length: 25
-    batch_size: 16
+    sample_length: 50
+    batch_size: 32
     hidden: [256, 128]
     lr: 0.001
     optimizer_name_ssl: "adam"
@@ -42,7 +42,7 @@ modalities:
       STDAT:
         class_name: STDAT
         from_module: STDAT3
-        sample_length: 25
+        sample_length: 50
         args: []
         kwargs:
           imu_feature_count: 6
@@ -56,7 +56,7 @@ modalities:
       STDAT:
         class_name: STDAT
         from_module: STDAT3
-        sample_length: 25
+        sample_length: 50
         args: []
         kwargs:
           imu_feature_count: 6
@@ -89,7 +89,7 @@ modalities:
       DSTformer:
         class_name: DSTformer
         from_module: DSTformer3
-        sample_length: 25
+        sample_length: 50
         args: []
         kwargs:
           dim_in: 3
@@ -99,7 +99,7 @@ modalities:
           num_heads: 4
           mlp_ratio: 4
           num_joints: 20
-          maxlen: 25
+          maxlen: 50
           drop_rate: 0.0
           attn_drop_rate: 0.0
           drop_path_rate: 0.0
@@ -107,7 +107,7 @@ modalities:
       DSTformer:
         class_name: DSTformer
         from_module: DSTformer3
-        sample_length: 25
+        sample_length: 50
         args: []
         kwargs:
           dim_in: 3
@@ -116,7 +116,7 @@ modalities:
           num_heads: 4
           mlp_ratio: 4
           num_joints: 20
-          maxlen: 25
+          maxlen: 50
           drop_rate: 0.0
           attn_drop_rate: 0.0
           drop_path_rate: 0.0

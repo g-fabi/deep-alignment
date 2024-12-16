@@ -134,27 +134,31 @@ class DSTformer(nn.Module):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
+    
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
 
     def forward(self, x):
-        print(f"x device: {x.device}")
-        print(f"self.joints_embed.weight device: {self.joints_embed.weight.device}")
+        # print(f"x device: {x.device}")
+        # print(f"self.joints_embed.weight device: {self.joints_embed.weight.device}")
         # x: [B, C, T, J]
-        print(f"Initial x shape: {x.shape}")
+        # print(f"Initial x shape: {x.shape}")
         B, C, T, J = x.shape
 
         # Permute to [B, T, J, C]
         x = x.permute(0, 2, 3, 1)
-        print(f"x after permute: {x.shape}")
+        # print(f"x after permute: {x.shape}")
 
         B, T, J, C = x.shape
         x = x.reshape(B * T, J, C)  # [B*T, J, C]
 
         # Apply joints_embed per joint
         x = self.joints_embed(x)  # [B*T, J, dim_feat]
-        print(f"x after joints_embed: {x.shape}")
-
+        # print(f"x after joints_embed: {x.shape}")
+# 
         x = x.view(B, T, J, self.dim_feat)  # [B, T, J, dim_feat]
-        print(f"x reshaped to [B, T, J, dim_feat]: {x.shape}")
+        # print(f"x reshaped to [B, T, J, dim_feat]: {x.shape}")
 
         x = self.pos_drop(x)
 
@@ -169,7 +173,7 @@ class DSTformer(nn.Module):
         x = x.permute(1, 0, 2).contiguous()  # [B*T, J + 1, dim_feat]
         x = self.norm_spatial(x)
         spatial_tokens = x.view(B, T, self.num_joints + 1, self.dim_feat)
-        print(f"spatial_tokens shape: {spatial_tokens.shape}")
+        # print(f"spatial_tokens shape: {spatial_tokens.shape}")
 
         # Extract [CLS] token for spatial global features
         cls_spatial_output = spatial_tokens[:, :, 0, :]  # [B, T, dim_feat]
@@ -191,7 +195,7 @@ class DSTformer(nn.Module):
         x = self.norm_temporal(x)
 
         temporal_tokens = x.view(B, J, T + 1, self.dim_feat)
-        print(f"temporal_tokens shape: {temporal_tokens.shape}")
+        # print(f"temporal_tokens shape: {temporal_tokens.shape}")
 
         # Extract [CLS] token for temporal global features
         cls_temporal_output = temporal_tokens[:, :, 0, :]  # [B, J, dim_feat]

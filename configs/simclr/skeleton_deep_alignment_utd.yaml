@@ -17,7 +17,7 @@ modalities:
           out_channels: [64, 32, 32, 64, 128, 256]
           kernel_sizes: [[1, 1], [3, 1], [3, 3], [3, 3], [3, 3], [3, 3]]
           max_pool_sizes: [null, null, 2, 2, 2, 2]
-          sample_length: 25
+          sample_length: 50
           lr: 0.001
           optimizer_name: "adam"
 
@@ -34,7 +34,7 @@ modalities:
         num_heads: 8
         mlp_ratio: 4
         num_joints: 17  
-        maxlen: 25
+        maxlen: 50
 
     transforms:
       - class_name: RecenterJoints
@@ -53,7 +53,7 @@ modalities:
         transform_name: sampling
         in_test: true
         kwargs:
-          size: 25
+          size: 50
       - class_name: ToTensor
         from_module: general_transforms
         in_test: true

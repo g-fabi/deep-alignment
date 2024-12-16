@@ -44,7 +44,7 @@ def parse_arguments():
     # Other training configs.
     parser.add_argument('--no_ckpt', action='store_true', default=False)
     parser.add_argument('--online-eval', action='store_true', default=False)
-    parser.add_argument('--num-workers', default=1, type=int)
+    parser.add_argument('--num-workers', default=8, type=int)
     parser.add_argument('--sweep', action='store_true', default=False, help='Set automatically if running in WandB sweep mode. You do not need to set this manually.')
     
     return parser.parse_args()
@@ -150,7 +150,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=[1],
+                                         gpus=1,
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs',
@@ -201,7 +201,7 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=[1],
+                                         gpus=1,
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs', 
