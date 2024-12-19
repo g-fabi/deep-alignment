@@ -2,8 +2,8 @@
 
 experiment:
   seed: 28
-  num_epochs_ssl: 10
-  num_epochs_fine_tuning: 10
+  num_epochs_ssl: 500
+  num_epochs_fine_tuning: 500
   batch_size_fine_tuning: 32
 
 ssl:

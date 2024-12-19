@@ -456,6 +456,8 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
         temperature=0.1,
         optimizer_name_ssl='adam',
         lr=0.001,
+        alpha=1.0,
+        beta=1.0,
         **kwargs
     ):
         # Initialize traditional CMC.
@@ -472,9 +474,10 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
             **kwargs)
 
         self.local_transformers = nn.ModuleDict(local_transformers)
-
         self.deep_alignment_loss_fn = DeepAlignmentLoss(modalities)
         
+        self.alpha = alpha
+        self.beta = beta
         self.loss = CustomMM_NTXent_CVKM(
             batch_size=batch_size,
             modalities=modalities,
@@ -482,7 +485,7 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
             cmkm_config=cmkm_config,
             temperature=temperature
         )
-        
+         
     def on_fit_start(self):
         for m in self.similarity_metrics:
             self.similarity_metrics[m].move_to_device(self.device)
@@ -529,12 +532,13 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
 
         loss_cmc_cmkm, pos, neg = self.loss(global_features, batch, training=True, batch_idx=batch_idx)
         loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
-        total_loss = loss_cmc_cmkm + loss_deep_alignment
+        total_loss = self.alpha * loss_cmc_cmkm + self.beta * loss_deep_alignment
             
         self.log("ssl_train_loss", total_loss)
         self.log("avg_positive_sim", pos)
         self.log("avg_neg_sim", neg)
         self.log("deep_alignment_loss", loss_deep_alignment)
+        self.log("loss_cmc_cmkm", loss_cmc_cmkm)
         
         return total_loss
 
@@ -547,7 +551,7 @@ class ContrastiveMultiviewCodingCVKMWithDeepAlignment(ContrastiveMultiviewCoding
 
         loss_cmc_cmkm, _, _ = self.loss(global_features, batch, training=False, batch_idx=batch_idx)
         loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
-        total_loss = loss_cmc_cmkm + loss_deep_alignment
+        total_loss = self.alpha * loss_cmc_cmkm + self.beta * loss_deep_alignment
         
         self.log("ssl_val_loss", total_loss)
 

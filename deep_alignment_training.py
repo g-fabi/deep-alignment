@@ -136,7 +136,9 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
             batch_size=batch_size,
             temperature=temperature,
             optimizer_name_ssl=optimizer_name_ssl,
-            lr=lr
+            lr=lr,
+            alpha=0.8,
+            beta=0.2
         )
 
     # Setup training callbacks.
@@ -150,7 +152,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=1,
+                                         gpus=[1],
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs',
@@ -201,7 +203,7 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
 
     trainer = Trainer.from_argparse_args(args=args,
                                          logger=loggers_list,
-                                         gpus=1,
+                                         gpus=[1],
                                          deterministic=True,
                                          max_epochs=num_epochs,
                                          default_root_dir='logs', 
