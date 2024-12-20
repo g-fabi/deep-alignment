@@ -1,5 +1,5 @@
 import torch
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from torch import nn
 
 class MultiModalClassifier(LightningModule):
@@ -65,8 +65,8 @@ class MultiModalClassifier(LightningModule):
     def forward(self, x):
         outs = []
         for modality in self.modalities:
-            out = self.models_dict[modality](x[modality])
-            out = self.flatten(out)
+            global_features, _ = self.models_dict[modality](x[modality])
+            out = self.flatten(global_features)
             out = self.projections[modality](out)
             outs.append(out)
         outs = torch.cat(outs, dim=1)

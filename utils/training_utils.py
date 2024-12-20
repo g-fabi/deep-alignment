@@ -1,7 +1,11 @@
+#training_utils.py
+
 import importlib
 import itertools
 import os
 import shutil
+
+import torch
 from models.cmc import ContrastiveMultiviewCoding
 from models.simclr_um import SimCLRUnimodal
 from torchvision import transforms
@@ -73,13 +77,24 @@ def init_ssl_mm_pretrained(modalities, model_cfgs, ckpt_path):
     class_ = ContrastiveMultiviewCoding(modalities, encoders)
     return class_.load_from_checkpoint(ckpt_path, modalities=modalities, encoders=encoders, strict=False)
 
-def init_ssl_encoder(model_cfg, ckpt_path=None):
-    module = importlib.import_module(f"models.{model_cfg['from_module']}")
-    class_ = getattr(module, model_cfg['encoder_class_name'])
+def init_ssl_encoder(encoder_cfg, ckpt_path=None):
+    """
+    Initialize SSL encoder based on the configuration.
+
+    Args:
+        encoder_cfg (dict): Configuration dictionary for the encoder.
+        ckpt_path (str, optional): Path to a checkpoint file. Defaults to None.
+
+    Returns:
+        nn.Module: Initialized encoder.
+    """
+    module = importlib.import_module(f"models.{encoder_cfg['from_module']}")
+    class_ = getattr(module, encoder_cfg['class_name'])
     if ckpt_path is None:
-        return class_(*model_cfg['args'], **model_cfg['kwargs'])
+        return class_(*encoder_cfg.get('args', []), **encoder_cfg.get('kwargs', {}))
     else:
         return class_.load_from_checkpoint(ckpt_path)
+
 
 
 def parse_splits(dataset_configs):
@@ -90,12 +105,19 @@ def setup_tb_logger(dir, name):
     return loggers.TensorBoardLogger(dir, name=name)
 
 
-def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, entity='self-supervised-mmhar', approach='supervised'):
-    return loggers.WandbLogger(config=experiment_info, entity=entity, project=f"{approach}-{modality}-{dataset}", name=experiment_id, id=experiment_id)
+def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach='supervised'):
+    entity = experiment_info.get('wandb_entity', None)
+    project = experiment_info.get('wandb_project', f"{approach}-{modality}-{dataset}")    
+    return loggers.WandbLogger(
+        config=experiment_info,
+        entity=entity,
+        project=project,
+        name=experiment_id,
+        id=experiment_id)
 
 
 def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment_info=None, modality=None, dataset=None, 
-        experiment_id=None, entity='self-supervised-mmhar', approach='supervised', experiment_config_path=None):
+        experiment_id=None, approach='supervised', experiment_config_path=None):
     loggers = []
     loggers_dict = {}
     if 'tensorboard' in logger_names:
@@ -103,7 +125,7 @@ def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment
         loggers.append(tb_logger)
         loggers_dict['tensorboard'] = tb_logger
     if 'wandb' in logger_names:
-        wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, entity, approach)
+        wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach)
         loggers.append(wandb_logger)
         loggers_dict['wandb'] = wandb_logger
         shutil.copy(experiment_config_path, os.path.join(wandb_logger.experiment.dir, "experiment_config.yaml"))
@@ -163,11 +185,12 @@ def get_tuning_grid_list(tuning_config_path, modality, model):
 
 
 def check_sampling_cfg(model_cfg, transform_cfg):
+    sample_length = model_cfg.get('sample_length')
     for i, transform in enumerate(transform_cfg):
         if ('transform_name' in transform
             and transform['transform_name'] == 'sampling'
-            and transform_cfg[i]['kwargs']['size'] != model_cfg['kwargs']['sample_length']):
-            transform_cfg[i]['kwargs']['size'] = model_cfg['kwargs']['sample_length']
+            and transform['kwargs']['size'] != sample_length):
+            transform['kwargs']['size'] = sample_length
     return model_cfg, transform_cfg
 
 def flat_key_to_dict(flat_key, value):
@@ -241,3 +264,34 @@ def nested_to_flat_dict(nested_dict):
         else:
             out[key] = val
     return out
+
+
+#FABIAN: UTIL FUNCTIONS FOR DEEP ALIGNMENT
+
+
+def init_local_transformer(model_cfg, ckpt_path=None):
+    module = importlib.import_module(f"models.{model_cfg['from_module']}")
+    class_name = model_cfg['class_name']
+    class_ = getattr(module, class_name)
+    kwargs = model_cfg.get('kwargs', {}).copy()
+    kwargs.pop('sample_length', None)
+    if ckpt_path is None:
+        return class_(*model_cfg.get('args', []), **kwargs)
+    else:
+        return class_.load_from_checkpoint(ckpt_path)
+
+def init_encoders(modalities, model_cfgs, ckpt_paths=None):
+    encoders = {}
+    for m in modalities:
+        model_cfg = model_cfgs[m]['global_encoder']
+
+        # Print the kwargs being passed
+        print(f"Initializing encoder for modality '{m}' with kwargs: {model_cfg.get('kwargs', {})}")
+
+        module = importlib.import_module(f"{model_cfg['from_module']}")
+        class_ = getattr(module, model_cfg['class_name'])
+        encoder = class_(*model_cfg.get('args', []), **model_cfg.get('kwargs', {}))
+        if ckpt_paths and ckpt_paths.get(m):
+            encoder.load_state_dict(torch.load(ckpt_paths[m]))
+        encoders[m] = encoder
+    return encoders

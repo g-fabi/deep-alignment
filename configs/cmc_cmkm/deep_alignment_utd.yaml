@@ -1,4 +1,5 @@
-# These values will overwrite the ones in the individual model configuration files.
+# deep_alignment_utd.yaml
+
 experiment:
   seed: 28
   num_epochs_ssl: 100
@@ -15,9 +16,30 @@ ssl:
     lr: 0.001
     optimizer_name_ssl: "adam"
 
+    # For CMC-CMKM
+    cmkm_config:
+      similarity_metric: pretrained_encoder
+
+      intra_modality_negatives_enabled: true
+      intra_modality_negatives_weight: 1
+      positive_mining_enabled: true
+      positive_mining_k: 1
+
+      # Unused in paper.
+      positive_mining_symmetric: false
+      negative_set_pruning_enabled: false
+      negative_set_pruning_threshold: 0.6
+      loss_term_weighing_enabled: false
+      loss_term_weighing_scale: 0.25
+
+wandb:
+  project: deep_alignment  
+  entity: fabiang           
+
 modalities:
   inertial:
-    model:
+    # existing configuration moved under global encoder
+    global_encoder:
       transformer:
         class_name: SupervisedTransformer
         from_module: inertial
@@ -27,11 +49,25 @@ modalities:
         kwargs:
           sample_length: 50
           kernel_size: 5
-          out_channels: [32, 64, 128]
+          out_channels: [32, 64, 256]
           num_head: 2
           num_attn_layers: 2
           lr: 0.001
           optimizer_name: "adam"
+    
+    # deep alignment under local transformer
+    local_transformer:
+      class_name: STDAT
+      from_module: STDAT3
+      args: []
+      kwargs:
+        imu_feature_count: 6
+        max_seq_len: 50
+        d_model: 256
+        dim_rep: 256
+        depth: 5
+        num_heads: 8
+        dropout: 0.1
     transforms:
       - class_name: InertialSampler
         from_module: inertial_transforms
@@ -41,7 +77,6 @@ modalities:
           size: 50
       - class_name: ToTensor
         from_module: general_transforms
-        transform_name: to_tensor
         in_test: true
       - class_name: Permute
         from_module: general_transforms
@@ -55,7 +90,7 @@ modalities:
         in_test: true
 
   skeleton:
-    model:
+    global_encoder:
       cooccurrence:
         class_name: SupervisedSkeletonCooccurenceModel
         from_module: skeleton_coocurrence
@@ -69,6 +104,26 @@ modalities:
           sample_length: 50
           lr: 0.001
           optimizer_name: adam
+
+    # deep alignment dstformer
+    local_transformer:
+      class_name: DSTformer
+      from_module: DSTformer3
+      args: []
+      kwargs:
+        dim_in: 3
+        #dim_out: 3
+        dim_feat: 256
+        dim_rep: 256
+        depth: 5
+        num_heads: 8
+        mlp_ratio: 4
+        num_joints: 20
+        maxlen: 50
+        drop_rate: 0.0
+        attn_drop_rate: 0.0
+        drop_path_rate: 0.0
+        
     transforms:
       - class_name: RecenterJoints
         from_module: skeleton_transforms

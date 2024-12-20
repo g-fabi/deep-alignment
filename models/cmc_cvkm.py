@@ -1,6 +1,8 @@
+#cmc_cvkm.py
+
 import torch
 import torch.nn.functional as F
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from torch import nn
 
 from models.cmc import ContrastiveMultiviewCoding
@@ -25,6 +27,9 @@ class MM_NTXent_CVKM(LightningModule):
         """Returns an [N, N] matrix of cosine similarities."""
         features_1 = F.normalize(features_1, dim=1)
         features_2 = F.normalize(features_2, dim=1)
+        # print(f"features_1 shape: {features_1.shape}")
+        # print(f"features_2 shape: {features_2.shape}")
+        # print(f"features_2.T shape: {features_2.T.shape}")
         similarity_matrix = torch.matmul(features_1, features_2.T)
         return similarity_matrix
 

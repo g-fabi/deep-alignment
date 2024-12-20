@@ -1,0 +1,150 @@
+# configs/deep_alignment/deep_alignment_utd.yaml
+
+experiment:
+  seed: 28
+  num_epochs_ssl: 500
+  num_epochs_fine_tuning: 500
+  batch_size_fine_tuning: 32
+
+ssl:
+  args: []
+  kwargs:
+    temperature: 0.1
+    sample_length: 50
+    batch_size: 32
+    hidden: [256, 128]
+    lr: 0.001
+    optimizer_name_ssl: "adam"
+
+    # For CMC-CMKM
+    cmkm_config:
+      similarity_metric: raw_similarities
+
+      intra_modality_negatives_enabled: true
+      intra_modality_negatives_weight: 1
+      positive_mining_enabled: true
+      positive_mining_k: 1
+
+      # Unused in paper.
+      positive_mining_symmetric: false
+      negative_set_pruning_enabled: false
+      negative_set_pruning_threshold: 0.6
+      loss_term_weighing_enabled: false
+      loss_term_weighing_scale: 0.25
+
+wandb:
+  project: deep_alignment
+  entity: fabiang
+
+modalities:
+  inertial:
+    global_encoder:
+      STDAT:
+        class_name: STDAT
+        from_module: STDAT3
+        sample_length: 50
+        args: []
+        kwargs:
+          imu_feature_count: 6
+          max_seq_len: 50
+          d_model: 128
+          dim_rep: 256
+          depth: 5
+          num_heads: 4
+          dropout: 0.1
+    local_transformer:
+      STDAT:
+        class_name: STDAT
+        from_module: STDAT3
+        sample_length: 50
+        args: []
+        kwargs:
+          imu_feature_count: 6
+          max_seq_len: 50
+          d_model: 128
+          depth: 5
+          num_heads: 4
+          dropout: 0.1
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 25
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      # - class_name: Permute
+      #   from_module: general_transforms
+      #   in_test: true
+      #   kwargs:
+      #     shape: [0, 2, 1]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true
+
+  skeleton:
+    global_encoder:
+      DSTformer:
+        class_name: DSTformer
+        from_module: DSTformer3
+        sample_length: 50
+        args: []
+        kwargs:
+          dim_in: 3
+          dim_feat: 128
+          dim_rep: 256
+          depth: 5
+          num_heads: 4
+          mlp_ratio: 4
+          num_joints: 20
+          maxlen: 50
+          drop_rate: 0.0
+          attn_drop_rate: 0.0
+          drop_path_rate: 0.0
+    local_transformer:
+      DSTformer:
+        class_name: DSTformer
+        from_module: DSTformer3
+        sample_length: 50
+        args: []
+        kwargs:
+          dim_in: 3
+          dim_feat: 128
+          depth: 5
+          num_heads: 4
+          mlp_ratio: 4
+          num_joints: 20
+          maxlen: 50
+          drop_rate: 0.0
+          attn_drop_rate: 0.0
+          drop_path_rate: 0.0
+    transforms:
+      - class_name: RecenterJoints
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_index: 2
+      - class_name: NormalizeDistances
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_1_index: 1
+          anchor_joint_2_index: 2
+      - class_name: SkeletonSampler
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          size: 25
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        in_test: true
+        kwargs:
+          shape: [1, 2, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true

@@ -57,7 +57,13 @@ class SkeletonSampler:
         :param x: ndarray
         :return: ndarray
         """
-        return signal.resample(x, self.size, axis=2)
+        #print(f"SkeletonSampler: Original shape {x.shape}")
+
+        resampled_x = signal.resample(x, self.size, axis=2)
+        
+        #print(f"SkeletonSampler: Resampled shape {resampled_x.shape}")
+
+        return resampled_x
 
 
 class FilterJoints:

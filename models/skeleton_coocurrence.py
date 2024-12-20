@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from pytorch_lightning.core.lightning import LightningModule
+from pytorch_lightning import LightningModule
 from functools import reduce
 
 from models.mlp import MLP
