@@ -45,15 +45,14 @@ class Permutation():
     def __call__(self, x):
         orig_steps = np.arange(x.shape[0])
         num_segs = np.random.randint(1, self.max_segments)
-        
-        ret = np.zeros_like(x)
+
         if num_segs > 1:
             splits = np.array_split(orig_steps, num_segs)
-            warp = np.concatenate(np.random.permutation(splits)).ravel()
-            ret = x[warp]
-        else:
-            ret = x
-        return ret
+            permuted_order = np.random.permutation(len(splits))
+            permuted_splits = [splits[i] for i in permuted_order]
+            warp = np.concatenate(permuted_splits).ravel()
+            x = x[warp]
+        return x
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ crop_and_resize:
   parameters:
     min_p: 0.8
     max_p: 0.9
-    size: 50
+    size: 25
   probability: 0.75
 scaling:
   apply: true

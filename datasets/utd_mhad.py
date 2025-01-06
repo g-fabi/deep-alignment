@@ -71,7 +71,8 @@ class UTDSkeletonInstance(UTDInstance):
 
 
 if __name__ == '__main__':
-    DATA_PATH = '/home/data/multimodal_har_datasets/utd_mhad/'
+    # DATA_PATH = '/home/data/multimodal_har_datasets/utd_mhad/'
+    DATA_PATH = r'D:\UM\thesis\cmc\cmc-cmkm\processed_data\utd_mhad\multimodal_har_datasets\utd_mhad'
     instance_path = f'{DATA_PATH}/Skeleton/a1_s1_t1_skeleton.mat'
     skeleton_instance = UTDSkeletonInstance(instance_path)
     print(skeleton_instance.joints[0])

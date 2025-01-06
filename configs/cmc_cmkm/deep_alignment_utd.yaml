@@ -1,0 +1,155 @@
+# deep_alignment_utd.yaml
+
+experiment:
+  seed: 28
+  num_epochs_ssl: 100
+  num_epochs_fine_tuning: 100
+  batch_size_fine_tuning: 64
+
+ssl:
+  args: []
+  kwargs:
+    temperature: 0.1
+    sample_length: 50
+    batch_size: 64
+    hidden: [256, 128]
+    lr: 0.001
+    optimizer_name_ssl: "adam"
+
+    # For CMC-CMKM
+    cmkm_config:
+      similarity_metric: pretrained_encoder
+
+      intra_modality_negatives_enabled: true
+      intra_modality_negatives_weight: 1
+      positive_mining_enabled: true
+      positive_mining_k: 1
+
+      # Unused in paper.
+      positive_mining_symmetric: false
+      negative_set_pruning_enabled: false
+      negative_set_pruning_threshold: 0.6
+      loss_term_weighing_enabled: false
+      loss_term_weighing_scale: 0.25
+
+wandb:
+  project: deep_alignment  
+  entity: fabiang           
+
+modalities:
+  inertial:
+    # existing configuration moved under global encoder
+    global_encoder:
+      transformer:
+        class_name: SupervisedTransformer
+        from_module: inertial
+        encoder_class_name: CNNTransformer
+        encoder_name: cnn_transformer
+        args: []
+        kwargs:
+          sample_length: 50
+          kernel_size: 5
+          out_channels: [32, 64, 256]
+          num_head: 2
+          num_attn_layers: 2
+          lr: 0.001
+          optimizer_name: "adam"
+    
+    # deep alignment under local transformer
+    local_transformer:
+      class_name: STDAT
+      from_module: STDAT3
+      args: []
+      kwargs:
+        imu_feature_count: 6
+        max_seq_len: 50
+        d_model: 256
+        dim_rep: 256
+        depth: 5
+        num_heads: 8
+        dropout: 0.1
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        transform_name: permutation
+        in_test: true
+        kwargs:
+          shape: [1, 0]
+      - class_name: ToFloat
+        transform_name: to_float
+        from_module: general_transforms
+        in_test: true
+
+  skeleton:
+    global_encoder:
+      cooccurrence:
+        class_name: SupervisedSkeletonCooccurenceModel
+        from_module: skeleton_coocurrence
+        encoder_class_name: SkeletonCooccurenceBlocks
+        encoder_name: blocks
+        args: [] # These will be passed as positional args to the LightningModule class.
+        kwargs: # These will be passed as kwargs to the LightningModule class.
+          out_channels: [64, 32, 32, 64, 128, 256]
+          kernel_sizes: [[1, 1], [3, 1], [3, 3], [3, 3], [3, 3], [3, 3]]
+          max_pool_sizes: [null, null, 2, 2, 2, 2]
+          sample_length: 50
+          lr: 0.001
+          optimizer_name: adam
+
+    # deep alignment dstformer
+    local_transformer:
+      class_name: DSTformer
+      from_module: DSTformer3
+      args: []
+      kwargs:
+        dim_in: 3
+        #dim_out: 3
+        dim_feat: 256
+        dim_rep: 256
+        depth: 5
+        num_heads: 8
+        mlp_ratio: 4
+        num_joints: 20
+        maxlen: 50
+        drop_rate: 0.0
+        attn_drop_rate: 0.0
+        drop_path_rate: 0.0
+        
+    transforms:
+      - class_name: RecenterJoints
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_index: 2
+      - class_name: NormalizeDistances
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_1_index: 1
+          anchor_joint_2_index: 2
+      - class_name: SkeletonSampler
+        from_module: skeleton_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        in_test: true
+        kwargs:
+          shape: [1, 2, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true

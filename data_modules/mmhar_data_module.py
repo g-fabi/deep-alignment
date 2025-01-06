@@ -119,15 +119,24 @@ class MMHarDataset(Dataset, metaclass=ABCMeta):
             path = self.data_tables[modality].iloc[idx].loc["path"]
             data = self._get_data_for_instance(modality, path)
 
+            #print(f"Sample {idx}, modality '{modality}', original shape: {data.shape}")
+
             if self.ssl and self.n_views > 1 and modality in self.transforms:
-                views = [self.transforms[modality](data) for _ in range(self.n_views)]
+                views = []
+                for _ in range(self.n_views):
+                    transformed_view = self.transforms[modality](data)
+                    views.append(transformed_view)
+                    #print(f"Sample {idx}, modality '{modality}', transformed view shape: {transformed_view.shape}")
                 data_sample[modality] = views
 
             elif modality in self.transforms:
                 data = self.transforms[modality](data)
+                
+                #print(f"Sample {idx}, modality '{modality}', transformed shape: {data.shape}")
                 data_sample[modality] = data
 
             else:
+                print(f"Sample {idx}, modality '{modality}', no transform applied.")
                 data_sample[modality] = data
 
         return data_sample
