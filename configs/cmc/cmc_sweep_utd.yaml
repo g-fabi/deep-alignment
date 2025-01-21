@@ -1,0 +1,68 @@
+program: ssl_training_mm.py
+method: bayes
+metric:
+  name: val_accuracy  # Or another metric you log
+  goal: maximize
+parameters:
+  # SSL hyperparameters
+  ssl.kwargs.lr:
+    distribution: log_uniform_values
+    min: 1e-5 
+    max: 1e-2
+  ssl.kwargs.batch_size:
+    values: [16, 32]
+  ssl.kwargs.temperature:
+    distribution: uniform
+    min: 0.05
+    max: 0.2
+  ssl.kwargs.hidden:
+    values:
+      - [256, 128]
+      - [512, 256]
+      - [128, 64]
+  
+  # Fine-tuning hyperparameters
+  ft_kwargs.lr:
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 1e-2
+  ft_kwargs.hidden:
+    values:
+      - [256, 128]
+      - [512, 256]
+      - [128, 64]
+  ft_kwargs.batch_size:
+    values: [16, 32]
+
+  # Number of epochs
+  num_epochs_ssl:
+    value: 200
+  num_epochs_fine_tuning:
+    value: 150
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --experiment_config_path
+  - configs/cmc/cmc_transformer_inertial_skeleton_utd.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets/utd_mhad
+  - --protocol
+  - cross_subject
+  - --framework
+  - cmc
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - transformer
+  - transformer
+  - --augmentations_path
+  - configs/inertial_augmentations/augmentations_utd.yaml
+  - configs/skeleton_augmentations/augmentations_utd.yaml
+  - --gpus
+  - 0
+  - --sweep

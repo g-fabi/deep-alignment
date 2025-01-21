@@ -291,7 +291,7 @@ class DeepAlignmentLoss(nn.Module):
         bs = C.size(0)
         T = self.IPOT_torch_batch(C, bs, n, m, miu, nu, iteration)
         cost = torch.einsum('bij,bij->b', C, T)  # Batch-wise trace
-        return -cost.mean()
+        return cost.mean() #return positive cost
 
     def IPOT_torch_batch(self, C, bs, n, m, miu, nu, iteration=20, beta=0.5):
         """

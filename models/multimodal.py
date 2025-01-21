@@ -32,7 +32,16 @@ class MultiModalClassifier(LightningModule):
         freeze_encoders=False) -> None:
 
         super().__init__()
-        self.save_hyperparameters("out_size", "hidden", "modalities", "optimizer_name", "metric_scheduler", "lr")
+        
+        # unique names to avoid conflict with ssl parameters
+        self.save_hyperparameters({
+            "ft_out_size": out_size,
+            "ft_hidden": hidden,
+            "ft_modalities": modalities,
+            "ft_optimizer_name": optimizer_name,
+            "ft_metric_scheduler": metric_scheduler,
+            "ft_lr": lr
+        })
 
         self.modalities = modalities
         self.models_dict = nn.ModuleDict(models_dict)

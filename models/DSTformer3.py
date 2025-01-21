@@ -85,7 +85,7 @@ class DSTformer(nn.Module):
         self.dim_rep = dim_rep
         self.num_joints = num_joints
         self.maxlen = maxlen
-        print(f"Initializing DSTformer with maxlen={maxlen}")
+        #print(f"Initializing DSTformer with maxlen={maxlen}")
 
         self.joints_embed = nn.Linear(dim_in, dim_feat)
         self.pos_drop = nn.Dropout(p=drop_rate)
@@ -156,7 +156,6 @@ class DSTformer(nn.Module):
         # Apply joints_embed per joint
         x = self.joints_embed(x)  # [B*T, J, dim_feat]
         # print(f"x after joints_embed: {x.shape}")
-# 
         x = x.view(B, T, J, self.dim_feat)  # [B, T, J, dim_feat]
         # print(f"x reshaped to [B, T, J, dim_feat]: {x.shape}")
 

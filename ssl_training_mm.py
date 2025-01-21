@@ -54,41 +54,91 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 
         # Take some specific parameters.
         num_epochs = _wandb.config["num_epochs_ssl"]
-
+        experiment_cfg['num_epochs_ssl'] = num_epochs
+        print(f"Number of epochs for SSL pre-training: {num_epochs}")
+        
+        num_epochs_ft = _wandb.config.get('num_epochs_fine_tuning', experiment_cfg['num_epochs_fine_tuning'])
+        experiment_cfg['num_epochs_fine_tuning'] = num_epochs_ft
+        print(f"Number of epochs for fine-tuning: {num_epochs_ft}")
+        
         # Take SSL model kwargs and merge with experiment config.
         ssl_key_values = {key: _wandb.config[key] for key in _wandb.config.keys() if key.startswith('ssl.')}
         ssl_kwargs_dict = flat_to_nested_dict(ssl_key_values)
         if ssl_kwargs_dict != {}:
-            ssl_cfg['kwargs'] = {**ssl_cfg['kwargs'], **ssl_kwargs_dict['ssl']}
+            ssl_cfg['kwargs'] = {**ssl_cfg['kwargs'], **ssl_kwargs_dict['ssl']['kwargs']}
+            print("Updated ssl_cfg['kwargs'] with sweep parameters:")
+            for key, value in ssl_cfg['kwargs'].items():
+                print(f"{key}: {value}")
+
+        # Merge fine-tuning sweep parameters into experiment_cfg
+        ft_key_values = {key: _wandb.config[key] for key in _wandb.config.keys() if key.startswith('ft_')}
+        ft_kwargs_dict = flat_to_nested_dict(ft_key_values)
+        if ft_kwargs_dict != {}:
+            experiment_cfg['fine_tuning_kwargs'] = ft_kwargs_dict['ft_kwargs']
+            print("Updated fine-tuning kwargs with sweep parameters:")
+            for key, value in experiment_cfg['fine_tuning_kwargs'].items():
+                print(f"{key}: {value}")
 
     # Initialize transforms (+ augmentations) and overwrite sample_length using model definition.
     train_transforms = {}
     test_transforms = {}
     for m in modalities:
-        _, transform_cfg = check_sampling_cfg(model_cfgs[m], transform_cfgs[m])
-        cur_train_transforms, cur_test_transforms = init_transforms(m, transform_cfg,
-                                                                    ssl_random_augmentations=True,
-                                                                    random_augmentations_dict=augmentation_cfgs[m])
+        model_cfg, transform_cfg = check_sampling_cfg(model_cfgs[m], transform_cfgs[m])
+        cur_train_transforms, cur_test_transforms = init_transforms(
+            m,
+            transform_cfg,
+            ssl_random_augmentations=True,
+            random_augmentations_dict=augmentation_cfgs[m]
+            )
         train_transforms.update(cur_train_transforms)
         test_transforms.update(cur_test_transforms)
 
     # Initialize datamodule.
     batch_size = ssl_cfg['kwargs']['batch_size']
+    print(f"Batch size: {batch_size}")
     datamodule = init_datamodule(data_path=args.data_path, dataset_name=args.dataset, modalities=modalities, batch_size=batch_size,
     split=dataset_cfg['protocols'][args.protocol], train_transforms=train_transforms, test_transforms=test_transforms,
     ssl=True, n_views=1, num_workers=args.num_workers)
 
     # Merge general model params with dataset-specific model params.
     for m in modalities:
-        model_cfgs[m]['kwargs'] = {**dataset_cfg[m], **model_cfgs[m]['kwargs']}
+        model_class_name = model_cfgs[m]['class_name']
+        model_kwargs = {**dataset_cfg[m], **model_cfgs[m]['kwargs']}
+        model_cfgs[m]['full_kwargs'] = model_kwargs.copy()
 
-    # Initialize encoders and SSL framework.
+        # Define allowed keys per model
+        if model_class_name == 'STDAT':
+            allowed_keys = [
+                'imu_feature_count', 'max_seq_len', 'd_model',
+                'dim_rep', 'depth', 'num_heads', 'dropout'
+            ]
+        elif model_class_name == 'DSTformer':
+            allowed_keys = [
+                'dim_in', 'dim_feat', 'dim_rep', 'depth',
+                'num_heads', 'num_joints', 'maxlen', 'mlp_ratio',
+                'drop_rate', 'attn_drop_rate', 'drop_path_rate', 'norm_layer'
+            ]
+        else:
+            allowed_keys = model_kwargs.keys()
+
+        # Filter kwargs for model initialization
+        model_cfgs[m]['init_kwargs'] = {k: v for k, v in model_kwargs.items() if k in allowed_keys}
+
+    # Initialize encoders
     encoders = {}
     for m in modalities:
-        encoders[m] = init_ssl_encoder(model_cfgs[m])
+        module = importlib.import_module(f"models.{model_cfgs[m]['from_module']}")
+        class_ = getattr(module, model_cfgs[m]['class_name'])
+        encoders[m] = class_(*model_cfgs[m].get('args', []), **model_cfgs[m]['init_kwargs'])
 
     if args.framework == 'cmc':
         model = ContrastiveMultiviewCoding(modalities, encoders, **ssl_cfg['kwargs'])
+        print(f"Model initialized with kwargs: {ssl_cfg['kwargs']}")
+
+        # Log hyperparameters after model initialization
+        if 'wandb' in loggers_dict:
+            loggers_dict['wandb'].log_hyperparams(model.hparams)
+
     elif args.framework == 'cmc-cmkm':
         similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
         model = ContrastiveMultiviewCodingCVKM(modalities, encoders, similarity_metrics, **ssl_cfg['kwargs'])
@@ -102,7 +152,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         experiment_id         = experiment_id,
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
+    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=[0], deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
     trainer.fit(model, datamodule)
 
@@ -111,13 +161,23 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
 def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id, limited_k=None):
     seed_everything(experiment_cfg['seed']) # reset seed for consistency in results
     modalities = args.modalities
-    batch_size = experiment_cfg['batch_size_fine_tuning']
+    batch_size = experiment_cfg.get('batch_size_fine_tuning', 32)
     num_epochs = experiment_cfg['num_epochs_fine_tuning']
+    fine_tuning_kwargs = experiment_cfg.get('fine_tuning_kwargs', {})
+    print(f"Number of epochs for fine-tuning: {num_epochs}")
     
     # Initialize the classifier model (MLP trained on concatenated features).
-    # To bring the features for the different modalities to the same size,
-    # each modality's features will be passed through an additional MLP. 
-    model = MultiModalClassifier(encoders, dataset_cfg['n_classes'], modalities=modalities, freeze_encoders=True)
+    # Use the fine-tuning hyperparameters from the sweep.
+    model = MultiModalClassifier(
+        encoders, 
+        dataset_cfg['n_classes'], 
+        hidden=fine_tuning_kwargs.get('hidden', [256, 128]),
+        modalities=modalities, 
+        optimizer_name='adam',
+        metric_scheduler='accuracy',
+        lr=fine_tuning_kwargs.get('lr', 0.001),
+        freeze_encoders=True
+    )
 
     # Initialize train and test transforms.
     train_transforms = {}
@@ -145,7 +205,7 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
         experiment_id         = experiment_id
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
+    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=[0], deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
 
     trainer.fit(model, datamodule)
@@ -219,8 +279,8 @@ def split_args(args):
 
     return args
 
-def init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id):
-    num_epochs = experiment_cfg['num_epochs_ssl']
+def init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id, is_sweep=False):
+    num_epochs = experiment_cfg['num_epochs_ssl']    
     if args.framework == "cmc-cmkm":
         flat_cmkm_config = nested_to_flat_dict({"ssl": {"cmkm_config": ssl_cfg['kwargs']['cmkm_config']}})
     else:
@@ -239,7 +299,7 @@ def init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmenta
     
     loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(modalities), dataset=args.dataset, 
         experiment_id=experiment_id, experiment_config_path=args.experiment_config_path,
-        approach='mm_ssl')
+        approach='mm_ssl', is_sweep=is_sweep)
     return loggers_list, loggers_dict
 
 def validate_args(args):
@@ -257,8 +317,9 @@ def validate_args(args):
 
 def run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs):
     experiment_id = generate_experiment_id()
+    print(f"Experiment ID: {experiment_id}")
     modalities = args.modalities
-    loggers_list, loggers_dict = init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id)
+    loggers_list, loggers_dict = init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id, is_sweep=args.sweep)
     
     encoders, loggers_list, loggers_dict, experiment_id = ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, experiment_id, loggers_list, loggers_dict)
     result_metrics = fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id)

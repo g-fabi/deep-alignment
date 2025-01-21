@@ -74,8 +74,25 @@ def init_ssl_mm_pretrained(modalities, model_cfgs, ckpt_path):
     encoders = {}
     for m in modalities:
         encoders[m] = init_ssl_encoder(model_cfgs[m])
-    class_ = ContrastiveMultiviewCoding(modalities, encoders)
-    return class_.load_from_checkpoint(ckpt_path, modalities=modalities, encoders=encoders, strict=False)
+
+    ckpt = torch.load(ckpt_path, map_location='cpu')
+    h = ckpt["hyper_parameters"]
+    model = ContrastiveMultiviewCoding(
+        modalities,
+        encoders,
+        hidden=h["hidden"],
+        lr=h["lr"],
+        batch_size=h["batch_size"],
+        temperature=h["temperature"],
+        optimizer_name_ssl=h["optimizer_name_ssl"],
+    )
+    model = model.load_from_checkpoint(
+        ckpt_path,
+        modalities=modalities,
+        encoders=encoders,
+        strict=False
+    )
+    return model
 
 def init_ssl_encoder(encoder_cfg, ckpt_path=None):
     """
@@ -117,19 +134,29 @@ def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approa
 
 
 def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment_info=None, modality=None, dataset=None, 
-        experiment_id=None, approach='supervised', experiment_config_path=None):
-    loggers = []
+                  experiment_id=None, approach='supervised', experiment_config_path=None, is_sweep=False):
+    loggers_list = []
     loggers_dict = {}
     if 'tensorboard' in logger_names:
         tb_logger = setup_tb_logger(tb_dir, experiment_id)
-        loggers.append(tb_logger)
+        loggers_list.append(tb_logger)
         loggers_dict['tensorboard'] = tb_logger
     if 'wandb' in logger_names:
-        wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach)
-        loggers.append(wandb_logger)
+        if is_sweep:
+            wandb_logger = loggers.WandbLogger(
+                config=experiment_info,
+                entity=experiment_info.get('wandb_entity', None),
+                project=experiment_info.get('wandb_project', f"{approach}-{modality}-{dataset}"),
+                name=experiment_id,
+                id=experiment_id
+            )
+        else:
+            wandb_logger = setup_wandb_logger(experiment_info, modality, dataset, experiment_id, approach)
+        loggers_list.append(wandb_logger)
         loggers_dict['wandb'] = wandb_logger
-        shutil.copy(experiment_config_path, os.path.join(wandb_logger.experiment.dir, "experiment_config.yaml"))
-    return loggers, loggers_dict
+        if experiment_config_path:
+            shutil.copy(experiment_config_path, os.path.join(wandb_logger.experiment.dir, "experiment_config.yaml"))
+    return loggers_list, loggers_dict
 
 
 def setup_early_stopping_callback(metric, min_delta=0.00, patience=50, mode="min"):

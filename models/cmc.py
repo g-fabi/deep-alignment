@@ -65,25 +65,39 @@ class ContrastiveMultiviewCoding(LightningModule):
     """
     Implementation of CMC (contrastive multiview coding), currently supporting exactly 2 views.
     """
-    def __init__(self, modalities, encoders, hidden=[256, 128], batch_size=64, temperature=0.1, optimizer_name_ssl='adam', lr=0.001, **kwargs):
+    def __init__(self, modalities, encoders, hidden, lr, batch_size, temperature, optimizer_name_ssl):
         super().__init__()
-        self.save_hyperparameters('modalities', 'hidden', 'batch_size', 'temperature', 'optimizer_name_ssl', 'lr')
-        
+
         self.modalities = modalities
         self.encoders = nn.ModuleDict(encoders)
 
-        self.projections = {}
-        for m in modalities:
-            self.projections[m] = ProjectionMLP(in_size=encoders[m].out_size, hidden=hidden)
-        self.projections = nn.ModuleDict(self.projections)
-
-        self.optimizer_name_ssl = optimizer_name_ssl
+        self.hidden = hidden
         self.lr = lr
-        self.loss = MM_NTXent(batch_size, modalities, temperature)
+        self.batch_size = batch_size
+        self.temperature = temperature
+        self.optimizer_name_ssl = optimizer_name_ssl or 'adam'
 
+        if isinstance(self.hidden, str):
+            import ast
+            self.hidden = ast.literal_eval(self.hidden)
+        self.lr = float(self.lr)
+        self.batch_size = int(self.batch_size)
+        self.temperature = float(self.temperature)
+
+        self.save_hyperparameters(ignore=['encoders'])
+
+        #print(f"Hyperparameters stored in self.hparams: {self.hparams}")
+        #print(f"Model initialized with hidden: {self.hidden}, lr: {self.lr}")
+
+        self.projections = nn.ModuleDict({
+            m: ProjectionMLP(in_size=self.encoders[m].out_size, hidden=self.hidden)
+            for m in self.modalities
+        })
+        self.loss = MM_NTXent(self.batch_size, self.modalities, self.temperature)
+    
     def _forward_one_modality(self, modality, inputs):
         x = inputs[modality]
-        x = self.encoders[modality](x)
+        x, _ = self.encoders[modality](x) # Extract global_features
         x = nn.Flatten()(x)
         x = self.projections[modality](x)
         return x
@@ -95,6 +109,7 @@ class ContrastiveMultiviewCoding(LightningModule):
         return outs
 
     def training_step(self, batch, batch_idx):
+        #print(f"At training step, self.hparams: {self.hparams}")
         for m in self.modalities:
             batch[m] = batch[m].float()
         outs = self(batch)
@@ -112,16 +127,14 @@ class ContrastiveMultiviewCoding(LightningModule):
         self.log("ssl_val_loss", loss)
 
     def configure_optimizers(self):
-        return self._initialize_optimizer()
-
-    def _initialize_optimizer(self):
-        if self.optimizer_name_ssl.lower() == 'adam':
-            optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": 'ssl_train_loss'
-                }
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=20
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": 'ssl_train_loss'
             }
+        }
