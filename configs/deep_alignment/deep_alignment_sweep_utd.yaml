@@ -1,0 +1,89 @@
+program: deep_alignment_only_training.py
+method: bayes
+metric:
+  name: test_accuracy
+  goal: maximize
+parameters:
+  # SSL hyperparameters
+  ssl_lr:
+    distribution: log_uniform_values
+    min: 1e-5 
+    max: 1e-2
+  ssl_batch_size:
+    values: [16]
+  ssl_optimizer_name:
+    value: "adam"
+  
+  # Fine-tuning hyperparameters
+  ft_lr:
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 1e-2
+  ft_hidden:
+    values:
+      - [256, 128]
+      - [512, 256]
+      - [128, 64]
+  ft_batch_size:
+    values: [16]
+  
+  # Model hyperparameters for the 'inertial' modality (STDAT Local Transformer)
+  depth_inertial:
+    values: [3, 5, 7]
+  dim_rep_inertial:
+    values: [128, 256, 512]
+  dim_feat_inertial:
+    values: [64, 128, 256]
+  num_heads_inertial:
+    values: [4, 8]
+  dropout_inertial:
+    values: [0.0, 0.1, 0.2]
+
+  # Model hyperparameters for the 'skeleton' modality (DSTformer Local Transformer)
+  depth_skeleton:
+    values: [3, 5, 7]
+  dim_rep_skeleton:
+    values: [128, 256, 512]
+  dim_feat_skeleton:
+    values: [64, 128, 256]
+  num_heads_skeleton:
+    values: [4, 8]
+  drop_rate_skeleton:
+    values: [0.0, 0.1, 0.2]
+  attn_drop_rate_skeleton:
+    values: [0.0, 0.1, 0.2]
+  drop_path_rate_skeleton:
+    values: [0.0, 0.1, 0.2]
+  
+  # Number of epochs
+  num_epochs_ssl:
+    value: 2
+  num_epochs_fine_tuning:
+    value: 2
+
+command:
+  # - ${env}
+  # - ${interpreter}
+  # - ${program}
+  - .\ssl_da_env\Scripts\python.exe
+  - deep_alignment_only_training.py
+  - --experiment_config_path
+  - configs/deep_alignment/deep_alignment_only_utd.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets/utd_mhad
+  - --protocol
+  - cross_subject
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - transformer
+  - transformer
+  - --augmentations_path
+  - configs/inertial_augmentations/augmentations_utd.yaml
+  - configs/skeleton_augmentations/augmentations_utd.yaml
+  - --gpus
+  - 0
+  - --sweep 

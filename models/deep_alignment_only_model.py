@@ -45,8 +45,8 @@ class DeepAlignmentLoss(nn.Module):
         loss_temporal = self.IPOT_distance_torch_batch(C_temporal, n_temporal_mod1, n_temporal_mod2, miu_temporal, nu_temporal)
 
         # Combine losses
-        loss = loss_spatial + loss_temporal
-        return loss
+        total_loss = loss_spatial + loss_temporal
+        return total_loss, loss_spatial, loss_temporal
 
     def cost_matrix_batch_torch(self, x, y):
         """
@@ -122,11 +122,7 @@ class DeepAlignmentModel(LightningModule):
         local_features = {}
 
         for m in self.modalities:
-            # Use the global encoder
-            global_feat, _ = self.encoders[m](batch[m])
-            global_features[m] = global_feat
-
-            # Use the local transformer
+            # Use the local transformer only
             _, local_feat = self.local_transformers[m](batch[m])
             local_features[m] = local_feat
 
@@ -138,8 +134,10 @@ class DeepAlignmentModel(LightningModule):
 
         global_features, local_features = self(batch)
 
-        loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
-        self.log("train_loss", loss_deep_alignment)
+        loss_deep_alignment, loss_spatial, loss_temporal = self.deep_alignment_loss_fn(local_features)
+        self.log("train_loss", loss_deep_alignment, on_step=True, on_epoch=True)
+        self.log("train_loss_spatial", loss_spatial, on_step=True, on_epoch=True)
+        self.log("train_loss_temporal", loss_temporal, on_step=True, on_epoch=True)
         return loss_deep_alignment
 
     def validation_step(self, batch, batch_idx):
@@ -147,8 +145,10 @@ class DeepAlignmentModel(LightningModule):
             batch[m] = batch[m].float()
 
         global_features, local_features = self(batch)
-        loss_deep_alignment = self.deep_alignment_loss_fn(local_features)
-        self.log("val_loss", loss_deep_alignment)
+        loss_deep_alignment, loss_spatial, loss_temporal = self.deep_alignment_loss_fn(local_features)
+        self.log("val_loss", loss_deep_alignment, on_step=True, on_epoch=True)
+        self.log("val_loss_spatial", loss_spatial, on_step=True, on_epoch=True)
+        self.log("val_loss_temporal", loss_temporal, on_step=True, on_epoch=True)
 
     def configure_optimizers(self):
         if self.optimizer_name == 'adam':
