@@ -34,7 +34,7 @@ def parse_arguments():
 
     # Other training configs.
     parser.add_argument('--no_ckpt', action='store_true', default=False)
-    parser.add_argument('--num-workers', default=1, type=int)
+    parser.add_argument('--num-workers', default=32, type=int)
     parser.add_argument('--sweep', action='store_true', default=False, help='Set automatically if running in WandB sweep mode. You do not need to set this manually.')
     
     return parser.parse_args()
@@ -67,6 +67,54 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         if ft_kwargs_dict != {}:
             experiment_cfg['fine_tuning_kwargs'] = ft_kwargs_dict['ft_kwargs']
 
+        param_mapping = {
+            # Inertial modality - Global Encoder
+            'inertial_global_d_model': ('global_encoder', 'kwargs', 'd_model'),
+            'inertial_global_num_heads': ('global_encoder', 'kwargs', 'num_heads'),
+            'inertial_global_depth': ('global_encoder', 'kwargs', 'depth'),
+            'inertial_global_dropout': ('global_encoder', 'kwargs', 'dropout'),
+            # Inertial modality - Local Encoder
+            'inertial_local_d_model': ('local_encoder', 'kwargs', 'd_model'),
+            'inertial_local_num_heads': ('local_encoder', 'kwargs', 'num_heads'),
+            'inertial_local_depth': ('local_encoder', 'kwargs', 'depth'),
+            'inertial_local_dropout': ('local_encoder', 'kwargs', 'dropout'),
+
+            # Skeleton modality - Global Encoder
+            'skeleton_global_dim_feat': ('global_encoder', 'kwargs', 'dim_feat'),
+            'skeleton_global_num_heads': ('global_encoder', 'kwargs', 'num_heads'),
+            'skeleton_global_depth': ('global_encoder', 'kwargs', 'depth'),
+            'skeleton_global_drop_rate': ('global_encoder', 'kwargs', 'drop_rate'),
+            'skeleton_global_attn_drop_rate': ('global_encoder', 'kwargs', 'attn_drop_rate'),
+            # Skeleton modality - Local Encoder
+            'skeleton_local_dim_feat': ('local_encoder', 'kwargs', 'dim_feat'),
+            'skeleton_local_num_heads': ('local_encoder', 'kwargs', 'num_heads'),
+            'skeleton_local_depth': ('local_encoder', 'kwargs', 'depth'),
+            'skeleton_local_drop_rate': ('local_encoder', 'kwargs', 'drop_rate'),
+            'skeleton_local_attn_drop_rate': ('local_encoder', 'kwargs', 'attn_drop_rate'),
+        }
+
+        # Get the shared local feature dimension
+        local_feature_dim = _wandb.config.get('local_feature_dim', 128)
+
+        # Update model configurations with swept hyperparameters
+        for m in modalities:
+            modality_params = {k: v for k, v in _wandb.config.items() if k.startswith(m)}
+            model_cfg = model_cfgs[m]
+            for param_name, param_value in modality_params.items():
+                if param_name in param_mapping:
+                    cfg_path = param_mapping[param_name]
+                    cfg_section = model_cfg
+                    for key in cfg_path[:-1]:
+                        cfg_section = cfg_section[key]
+                    cfg_section[cfg_path[-1]] = param_value
+
+            if m == 'inertial':
+                # For inertial modality, set 'd_model' in local encoder
+                model_cfg['local_encoder']['kwargs']['d_model'] = local_feature_dim
+            elif m == 'skeleton':
+                # For skeleton modality, set 'dim_feat' in local encoder
+                model_cfg['local_encoder']['kwargs']['dim_feat'] = local_feature_dim
+                
     # Initialize transforms (+ augmentations) and overwrite sample_length using model definition.
     train_transforms = {}
     test_transforms = {}

@@ -20,19 +20,13 @@ parameters:
     min: 0.05
     max: 0.2
   hidden_cmc:
-    values:
-      - [256, 128]
-      - [512, 256]
-      - [128, 64]
+    values: [[128, 64], [256, 128], [512, 256]]
   hidden_da:
-    values:
-      - [256, 128]
-      - [512, 256]
-      - [128, 64]
+    values: [[128, 64], [256, 128], [512, 256]]
   beta:
     distribution: uniform
     min: 0.1
-    max: 1.0
+    max: 0.6
   
   # Fine-tuning hyperparameters
   ft_kwargs.lr:
@@ -40,10 +34,7 @@ parameters:
     min: 1e-5
     max: 1e-2
   ft_kwargs.hidden:
-    values:
-      - [256, 128]
-      - [512, 256]
-      - [128, 64]
+    values: [[128, 64], [256, 128], [512, 256]]
   ft_kwargs.batch_size:
     values: [16, 32]
 
@@ -52,6 +43,56 @@ parameters:
     value: 2
   num_epochs_fine_tuning:
     value: 2
+
+  # Shared local feature dimension parameter
+  local_feature_dim:
+    values: [64, 128, 256]
+
+  # Inertial modality - Global Encoder
+  inertial_global_d_model:
+    values: [64, 128, 256]
+  inertial_global_num_heads:
+    values: [2, 4, 8]
+  inertial_global_depth:
+    values: [2, 4, 6]
+  inertial_global_dropout:
+    min: 0.0
+    max: 0.3
+
+  # Inertial modality - Local Encoder
+  inertial_local_num_heads:
+    values: [2, 4, 8]
+  inertial_local_depth:
+    values: [2, 4, 6]
+  inertial_local_dropout:
+    min: 0.0
+    max: 0.3
+
+  # Skeleton modality - Global Encoder
+  skeleton_global_dim_feat:
+    values: [64, 128, 256]
+  skeleton_global_num_heads:
+    values: [2, 4, 8]
+  skeleton_global_depth:
+    values: [2, 4, 6]
+  skeleton_global_drop_rate:
+    min: 0.0
+    max: 0.3
+  skeleton_global_attn_drop_rate:
+    min: 0.0
+    max: 0.3
+
+  # Skeleton modality - Local Encoder
+  skeleton_local_num_heads:
+    values: [2, 4, 8]
+  skeleton_local_depth:
+    values: [2, 4, 6]
+  skeleton_local_drop_rate:
+    min: 0.0
+    max: 0.3
+  skeleton_local_attn_drop_rate:
+    min: 0.0
+    max: 0.3
 
 command:
   - ${env}
