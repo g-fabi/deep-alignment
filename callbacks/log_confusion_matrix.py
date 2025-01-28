@@ -1,5 +1,5 @@
 import pytorch_lightning as pl
-import pytorch_lightning.loggers as loggers
+from pytorch_lightning.loggers import WandbLogger
 import wandb
 
 class LogConfusionMatrix(pl.Callback):
@@ -25,8 +25,9 @@ class LogConfusionMatrix(pl.Callback):
     def on_test_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         # Retrieve the WandB logger, if it exists.
         wandb_logger = None
-        for logger in trainer.logger:
-            if isinstance(logger, loggers.WandbLogger):
+        loggers = trainer.logger if isinstance(trainer.logger, list) else [trainer.logger]
+        for logger in loggers:
+            if isinstance(logger, WandbLogger):
                 wandb_logger = logger
         if wandb_logger == None:
             return

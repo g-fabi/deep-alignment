@@ -1,0 +1,82 @@
+experiment:
+  seed: 28
+  num_epochs: 500
+  batch_size: 25
+  lr: 0.005
+
+modalities:
+  inertial:
+    model:
+      stdat:
+        class_name: STDAT
+        from_module: STDAT3
+        encoder_name: ""
+        args: []
+        kwargs:
+          imu_feature_count: 12
+          max_seq_len: 50
+          d_model: 128
+          dim_rep: 128
+          depth: 4
+          num_heads: 8
+          dropout: 0.2
+
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        transform_name: to_tensor
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        transform_name: permutation
+        in_test: true
+        kwargs:
+          shape: [0, 1]
+      - class_name: ToFloat
+        from_module: general_transforms
+        transform_name: to_float
+        in_test: true
+
+  skeleton:
+    model:
+      dstformer:
+        class_name: DSTformer
+        from_module: DSTformer3
+        encoder_name: ""
+        args: []
+        kwargs:
+          dim_in: 2
+          num_joints: 17
+          maxlen: 50
+          dim_feat: 128
+          dim_rep: 128
+          depth: 4
+          num_heads: 8
+          mlp_ratio: 4
+          drop_rate: 0.2
+          attn_drop_rate: 0.1
+
+    transforms:
+      - class_name: SkeletonSampler
+        from_module: skeleton_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        in_test: true
+        kwargs:
+          shape: [1, 2, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true

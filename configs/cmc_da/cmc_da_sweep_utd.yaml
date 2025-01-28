@@ -40,9 +40,9 @@ parameters:
 
   # Number of epochs
   num_epochs_ssl:
-    value: 2
+    value: 250
   num_epochs_fine_tuning:
-    value: 2
+    value: 250
 
   # Shared local feature dimension parameter
   local_feature_dim:

@@ -11,12 +11,18 @@ class LogClassifierMetrics(pl.Callback):
     """
 
     def __init__(self, num_classes, metric_names=['accuracy', 'f1-score', 'precision', 'recall'], average='micro'):
+        super().__init__()
         self.metric_names = metric_names
         self.metric_dict = nn.ModuleDict({
-            'accuracy':  torchmetrics.Accuracy(),
-            'f1-score':  torchmetrics.F1(num_classes=num_classes, average=average),
-            'precision': torchmetrics.Precision(num_classes=num_classes, average=average),
-            'recall':    torchmetrics.Recall(num_classes=num_classes, average=average)
+            # 'accuracy':  torchmetrics.Accuracy(),
+            # 'f1-score':  torchmetrics.F1(num_classes=num_classes, average=average),
+            # 'precision': torchmetrics.Precision(num_classes=num_classes, average=average),
+            # 'recall':    torchmetrics.Recall(num_classes=num_classes, average=average)
+            'accuracy':  torchmetrics.Accuracy(task='multiclass', num_classes=num_classes),
+            'f1-score':  torchmetrics.F1Score(task='multiclass', num_classes=num_classes, average=average),
+            'precision': torchmetrics.Precision(task='multiclass', num_classes=num_classes, average=average),
+            'recall':    torchmetrics.Recall(task='multiclass', num_classes=num_classes, average=average)
+        
         })
         self._reset_state()
 

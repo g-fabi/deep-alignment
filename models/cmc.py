@@ -34,6 +34,8 @@ class MM_NTXent(LightningModule):
         # This computes the similarity between each sample in M1 with each sample in M2.
         features_1 = features[modalities[0]]
         features_2 = features[modalities[1]]
+        
+        actual_batch_size = features_1.shape[0]
         similarity_matrix = MM_NTXent.get_cosine_sim_matrix(features_1, features_2)
 
         # We need to formulate (2 * batch_size) instance discrimination problems:
@@ -41,25 +43,25 @@ class MM_NTXent(LightningModule):
         # -> each instance from M2 with each instance from M1
 
         # Similarities on the main diagonal are from positive pairs, and are the same in both directions.
-        mask = torch.eye(batch_size, dtype=torch.bool)
-        positives_m1_m2 = similarity_matrix[mask].view(batch_size, -1)
-        positives_m2_m1 = similarity_matrix[mask].view(batch_size, -1)
+        mask = torch.eye(actual_batch_size, dtype=torch.bool)
+        positives_m1_m2 = similarity_matrix[mask].view(actual_batch_size, -1)
+        positives_m2_m1 = similarity_matrix[mask].view(actual_batch_size, -1)
         positives = torch.cat([positives_m1_m2, positives_m2_m1], dim=0)
 
         # The rest of the similarities are from negative pairs. Row-wise for the loss from M1 to M2, and column-wise for the loss from M2 to M1.
-        negatives_m1_m2 = similarity_matrix[~mask].view(batch_size, -1)
-        negatives_m2_m1 = similarity_matrix.T[~mask].view(batch_size, -1)
+        negatives_m1_m2 = similarity_matrix[~mask].view(actual_batch_size, -1)
+        negatives_m2_m1 = similarity_matrix.T[~mask].view(actual_batch_size, -1)
         negatives = torch.cat([negatives_m1_m2, negatives_m2_m1])
         
         # Reshuffle the values in each row so that positive similarities are in the first column.
         logits = torch.cat([positives, negatives], dim=1)
 
         # Labels are a zero vector because all positive logits are in the 0th column.
-        labels = torch.zeros(2 * batch_size)
+        labels = torch.zeros(2 * actual_batch_size, device=features_1.device)
 
         logits = logits / temperature
 
-        return logits, labels.long().to(logits.device), positives.mean(), negatives.mean()
+        return logits, labels.long(), positives.mean(), negatives.mean()
 
 class ContrastiveMultiviewCoding(LightningModule):
     """

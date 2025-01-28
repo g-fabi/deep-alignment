@@ -212,12 +212,13 @@ def get_tuning_grid_list(tuning_config_path, modality, model):
 
 
 def check_sampling_cfg(model_cfg, transform_cfg):
-    sample_length = model_cfg.get('sample_length')
-    for i, transform in enumerate(transform_cfg):
-        if ('transform_name' in transform
-            and transform['transform_name'] == 'sampling'
-            and transform['kwargs']['size'] != sample_length):
-            transform['kwargs']['size'] = sample_length
+    sample_length = model_cfg.get('max_seq_len') or model_cfg.get('maxlen')
+    if sample_length is not None:
+        for i, transform in enumerate(transform_cfg):
+            if ('transform_name' in transform
+                and transform['transform_name'] == 'sampling'
+                and transform['kwargs']['size'] != sample_length):
+                transform['kwargs']['size'] = sample_length
     return model_cfg, transform_cfg
 
 def flat_key_to_dict(flat_key, value):

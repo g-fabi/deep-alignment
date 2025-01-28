@@ -6,7 +6,7 @@ import pandas as pd
 from pytorch_lightning import LightningDataModule
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
-
+import torch
 class MMHarDataset(Dataset, metaclass=ABCMeta):
     """
     Generic Dataset implementation for multimodal human activity datasets.
@@ -118,6 +118,12 @@ class MMHarDataset(Dataset, metaclass=ABCMeta):
         for modality in self.modalities:
             path = self.data_tables[modality].iloc[idx].loc["path"]
             data = self._get_data_for_instance(modality, path)
+            
+            if torch.is_tensor(data):
+                assert not torch.isnan(data).any(), f"NaN values found in tensor data for modality {modality} at index {idx}"
+                assert not torch.isinf(data).any(), f"Infinite values found in tensor data for modality {modality} at index {idx}"
+            else:
+                data = torch.tensor(data)
 
             #print(f"Sample {idx}, modality '{modality}', original shape: {data.shape}")
 

@@ -1,0 +1,89 @@
+experiment:
+  seed: 28
+  num_epochs: 100
+  batch_size: 16
+  lr: 0.0005
+  framework: "cmc_da"
+  ssl:
+    temperature: 0.1
+    beta: 1
+    hidden_cmc: [256, 128]
+    hidden_da: [256, 128]
+
+modalities:
+  inertial:
+    model:
+      stdat:
+        class_name: STDAT
+        from_module: STDAT3
+        encoder_name: ""
+        args: []
+        kwargs:
+          imu_feature_count: 6
+          max_seq_len: 50
+          d_model: 128
+          dim_rep: 128
+          depth: 4
+          num_heads: 4
+          dropout: 0.1
+          
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true
+
+  skeleton:
+    model:
+      dstformer:
+        class_name: DSTformer
+        from_module: DSTformer3
+        encoder_name: ""
+        args: []
+        kwargs:
+          dim_in: 3
+          num_joints: 20
+          maxlen: 50
+          dim_feat: 128
+          dim_rep: 128
+          depth: 4
+          num_heads: 4
+          mlp_ratio: 2
+          drop_rate: 0.1
+          attn_drop_rate: 0.1
+
+    transforms:
+      - class_name: RecenterJoints
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_index: 2
+      - class_name: NormalizeDistances
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_1_index: 1
+          anchor_joint_2_index: 2
+      - class_name: SkeletonSampler
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        in_test: true
+        kwargs:
+          shape: [1, 2, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true 
