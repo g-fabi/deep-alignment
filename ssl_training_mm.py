@@ -102,8 +102,18 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         experiment_id         = experiment_id,
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(
+        args=args,
+        logger=loggers_list,
+        gpus=1,
+        deterministic=True,
+        max_epochs=num_epochs,
+        default_root_dir='logs', 
+        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+        callbacks=callbacks,
+        checkpoint_callback=not args.no_ckpt,
+        log_every_n_steps=1
+    )
     trainer.fit(model, datamodule)
 
     return encoders, loggers_list, loggers_dict, experiment_id
@@ -145,8 +155,18 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
         experiment_id         = experiment_id
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(
+        args=args,
+        logger=loggers_list,
+        gpus=1,
+        deterministic=True,
+        max_epochs=num_epochs,
+        default_root_dir='logs', 
+        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+        callbacks=callbacks,
+        checkpoint_callback=not args.no_ckpt,
+        log_every_n_steps=1
+    )
 
     trainer.fit(model, datamodule)
     trainer.test(model, datamodule, ckpt_path='best')
@@ -237,9 +257,16 @@ def init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmenta
         experiment_info[f"{m}_encoder"] = model_cfgs[m]['encoder_class_name']
         experiment_info[f"{m}_augmentations"] = augmentation_cfgs[m]
     
-    loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(modalities), dataset=args.dataset, 
-        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path,
-        approach='mm_ssl')
+    loggers_list, loggers_dict = setup_loggers(
+        tb_dir="tb_logs", 
+        experiment_info=experiment_info, 
+        modality='mm_' + '_'.join(modalities), 
+        dataset=args.dataset, 
+        experiment_id=experiment_id, 
+        experiment_config_path=args.experiment_config_path,
+        entity='fabiang',
+        approach='mm_ssl'
+    )
     return loggers_list, loggers_dict
 
 def validate_args(args):

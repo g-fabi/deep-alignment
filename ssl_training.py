@@ -170,8 +170,16 @@ def init_loggers(args, modality, cfg, experiment_id, fine_tune_only=False):
         }
         experiment_info = {**experiment_info, **additional_info}
     
-    loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality=modality, dataset=args.dataset, 
-        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, approach='ssl')
+    loggers_list, loggers_dict = setup_loggers(
+        tb_dir="tb_logs", 
+        experiment_info=experiment_info, 
+        modality=modality, 
+        dataset=args.dataset, 
+        experiment_id=experiment_id, 
+        experiment_config_path=args.experiment_config_path, 
+        entity='my_wandb_entity',
+        approach='ssl'
+    )
     return loggers_list, loggers_dict
 
 def run_one_experiment(args, cfg, dataset_cfg):

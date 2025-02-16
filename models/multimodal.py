@@ -66,6 +66,9 @@ class MultiModalClassifier(LightningModule):
         outs = []
         for modality in self.modalities:
             out = self.models_dict[modality](x[modality])
+            # Extract global features if encoder returns (global, local)
+            if isinstance(out, tuple):
+                out = out[0]
             out = self.flatten(out)
             out = self.projections[modality](out)
             outs.append(out)

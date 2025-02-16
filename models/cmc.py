@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from pytorch_lightning.core.lightning import LightningModule
 from torch import nn
 
+#from models.mlp import ProjectionMLP_DA as ProjectionMLP
 from models.mlp import ProjectionMLP
 
 class MM_NTXent(LightningModule):
@@ -84,6 +85,9 @@ class ContrastiveMultiviewCoding(LightningModule):
     def _forward_one_modality(self, modality, inputs):
         x = inputs[modality]
         x = self.encoders[modality](x)
+        # If the encoder returns a tuple, extract the global_features (first element)
+        if isinstance(x, tuple):
+            x = x[0]
         x = nn.Flatten()(x)
         x = self.projections[modality](x)
         return x
@@ -92,6 +96,10 @@ class ContrastiveMultiviewCoding(LightningModule):
         outs = {}
         for m in self.modalities:
             outs[m] = self._forward_one_modality(m, x)
+            # Log feature stats
+            self.log(f"{m}_feat_mean", outs[m].mean())
+            self.log(f"{m}_feat_std", outs[m].std())
+            self.log(f"{m}_feat_max", outs[m].max())
         return outs
 
     def training_step(self, batch, batch_idx):
@@ -102,6 +110,10 @@ class ContrastiveMultiviewCoding(LightningModule):
         self.log("ssl_train_loss", loss)
         self.log("avg_positive_sim", pos)
         self.log("avg_neg_sim", neg)
+        
+        for name, param in self.encoders.named_parameters():
+            if param.grad is not None:
+                self.log(f"grad_norm/{name}", param.grad.norm())
         return loss
 
     def validation_step(self, batch, batch_idx):

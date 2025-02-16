@@ -1,0 +1,102 @@
+experiment:
+  seed: 28
+  num_epochs: 100
+
+modalities:
+  inertial:
+    model:
+      stdat:
+        class_name: STDAT
+        from_module: STDAT4
+        encoder_class_name: STDAT
+        encoder_name: stdat
+        args: []
+        kwargs:
+          sample_length: 50
+          d_model: 64
+          dim_rep: 256
+          depth: 5
+          num_heads: 8
+          dropout: 0.01
+          mlp_ratio: 4.0
+          batch_size: 64
+          lr: 0.001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        transform_name: to_tensor
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        transform_name: permutation
+        in_test: true
+        kwargs:
+          shape: [1, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        transform_name: to_float
+        in_test: true
+
+  skeleton:
+    model:
+      poseformer:
+        class_name: PoseFormer
+        from_module: PoseFormerV4
+        encoder_class_name: PoseFormer
+        encoder_name: poseformer
+        args: []
+        kwargs:
+          sample_length: 50
+          opt:
+            layers: 10
+            number_of_kept_frames: 50
+            number_of_kept_coeffs: 30
+            naive: false
+          embed_dim_ratio: 16
+          num_heads: 8
+          mlp_ratio: 4.0
+          qkv_bias: true
+          drop_rate: 0.0
+          attn_drop_rate: 0.0
+          drop_path_rate: 0.01
+          batch_size: 64
+          lr: 0.001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
+    transforms:
+      - class_name: RecenterJoints
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_index: 2
+      - class_name: NormalizeDistances
+        from_module: skeleton_transforms
+        in_test: true
+        kwargs:
+          anchor_joint_1_index: 1
+          anchor_joint_2_index: 2
+      - class_name: SkeletonSampler
+        from_module: skeleton_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        in_test: true
+        kwargs:
+          shape: [1, 2, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        in_test: true 

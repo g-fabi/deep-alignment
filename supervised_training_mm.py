@@ -89,7 +89,7 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
         approach = 'supervised'
 
     loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(args.modalities), dataset=args.dataset, 
-        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path,
+        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, entity='fabiang',
         approach=approach)
 
     # setup callbacks
@@ -106,8 +106,18 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
         experiment_id         = experiment_id
     )
     
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(
+        args=args,
+        logger=loggers_list,
+        gpus=1,
+        deterministic=True,
+        max_epochs=num_epochs,
+        default_root_dir='logs', 
+        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+        callbacks=callbacks,
+        checkpoint_callback=not args.no_ckpt,
+        log_every_n_steps=1
+    )
 
     trainer.fit(model, datamodule)
     trainer.test(model, datamodule, ckpt_path='best')

@@ -90,8 +90,16 @@ def setup_tb_logger(dir, name):
     return loggers.TensorBoardLogger(dir, name=name)
 
 
-def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, entity='self-supervised-mmhar', approach='supervised'):
-    return loggers.WandbLogger(config=experiment_info, entity=entity, project=f"{approach}-{modality}-{dataset}", name=experiment_id, id=experiment_id)
+def setup_wandb_logger(experiment_info, modality, dataset, experiment_id, 
+                       entity='your_wandb_entity',
+                       approach='your_approach'):
+    return loggers.WandbLogger(
+        config=experiment_info,
+        entity=entity,
+        project=f"{approach}-{modality}-{dataset}",
+        name=experiment_id,
+        id=experiment_id
+    )
 
 
 def setup_loggers(logger_names=['tensorboard', 'wandb'], tb_dir=None, experiment_info=None, modality=None, dataset=None, 

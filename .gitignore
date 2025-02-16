@@ -13,3 +13,9 @@ model_weights/
 semi_sup_results/
 precomputed_similarities/
 shared_models
+
+processed_data/
+env/
+
+STDAT5.py
+PoseFormerV5.py
