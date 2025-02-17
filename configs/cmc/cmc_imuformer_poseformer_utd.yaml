@@ -17,20 +17,22 @@ ssl:
 modalities:
   inertial:
     model:
-      stdat4:
-        class_name: STDAT
-        from_module: STDAT4
-        encoder_class_name: STDAT
-        encoder_name: stdat4
+      imuformer:
+        class_name: IMUFormer
+        from_module: IMUFormer
+        encoder_class_name: IMUFormer
+        encoder_name: imuformer
         args: []
         kwargs:
-          sample_length: 50
           d_model: 128
-          dim_rep: 256
-          depth: 5
-          num_heads: 4
+          num_layers: 5
+          heads: 4
+          _heads: 2
+          sample_length: 50
           dropout: 0.0353
-          mlp_ratio: 2.0
+          pe_k: 20
+          cnn_units: 1
+          cnn_kernel_sizes: [[1,1], [3,3], [5,5]]
     transforms:
       - class_name: InertialSampler
         from_module: inertial_transforms

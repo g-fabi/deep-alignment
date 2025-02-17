@@ -115,3 +115,9 @@ class MultiModalClassifier(LightningModule):
                 "monitor": '_'.join(['val', self.metric_scheduler])
             }
         }
+
+    def on_train_start(self):
+        optimizer = self.trainer.optimizers[0]
+        lr = optimizer.param_groups[0]['lr']
+        self.log("learning_rate", lr)
+        print(f"Training starting with learning rate: {lr}")

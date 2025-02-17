@@ -127,18 +127,3 @@ class ProjectionMLP(nn.Module):
 		x = self.linear1(x)
 		x = self.linear2(x)
 		return x
-
-class ProjectionMLP_DA(nn.Module):
-    def __init__(self, in_size, hidden=[512, 256]):
-        super().__init__()
-        self.name = 'MLP_DA'
-        self.layers = nn.Sequential(
-            nn.Linear(in_size, hidden[0]),
-            nn.LayerNorm(hidden[0]),
-            nn.ReLU(),
-            nn.Linear(hidden[0], hidden[1]),
-            nn.LayerNorm(hidden[1])
-        )
-    
-    def forward(self, x):
-        return self.layers(x)

@@ -111,9 +111,9 @@ class ContrastiveMultiviewCoding(LightningModule):
         self.log("avg_positive_sim", pos)
         self.log("avg_neg_sim", neg)
         
-        for name, param in self.encoders.named_parameters():
-            if param.grad is not None:
-                self.log(f"grad_norm/{name}", param.grad.norm())
+        # for name, param in self.encoders.named_parameters():
+        #     if param.grad is not None:
+        #         self.log(f"grad_norm/{name}", param.grad.norm())
         return loss
 
     def validation_step(self, batch, batch_idx):

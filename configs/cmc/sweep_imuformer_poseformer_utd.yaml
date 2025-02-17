@@ -1,0 +1,87 @@
+program: ssl_training_mm.py
+command:
+  - python
+  - ssl_training_mm.py
+  - --experiment_config_path
+  - configs/cmc/cmc_imuformer_poseformer_utd.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets
+  - --augmentations_path
+  - configs/inertial_augmentations/augmentations_utd.yaml
+  - configs/skeleton_augmentations/augmentations_utd.yaml
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - imuformer
+  - poseformerv4
+  - --num-workers
+  - 32
+  - --sweep
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  # SSL training parameters
+  ssl.temperature:
+    distribution: uniform
+    min: 0.05
+    max: 0.5
+  ssl.lr:
+    distribution: uniform
+    min: 0.00001
+    max: 0.001
+  ssl.batch_size:
+    values: [16, 32, 64]
+
+  # IMUFormer (inertial) parameters
+  imuformer.d_model:
+    values: [128, 256]
+  imuformer.num_layers:
+    values: [5, 7, 9]
+  imuformer.heads:
+    values: [4, 8]
+  imuformer._heads:
+    values: [1, 2]
+  imuformer.dropout:
+    distribution: uniform
+    min: 0.01
+    max: 0.1
+  imuformer.pe_k:
+    values: [10, 20, 30]
+  imuformer.cnn_units:
+    values: [1, 2, 4]
+  imuformer.cnn_kernel_sizes:
+    values:
+      - [[1,1], [3,3], [5,5]]
+      - [[1,1], [5,5], [7,7]]
+
+  # PoseFormer (skeleton) parameters
+  poseformerv4.opt.layers:
+    values: [8, 12, 14]
+  poseformerv4.embed_dim_ratio:
+    values: [16, 32, 64]
+  poseformerv4.num_heads:
+    values: [4, 8, 16]
+  poseformerv4.mlp_ratio:
+    values: [2.0, 4.0]
+  poseformerv4.drop_rate:
+    distribution: uniform
+    min: 0.01
+    max: 0.1
+  poseformerv4.attn_drop_rate:
+    distribution: uniform
+    min: 0.01
+    max: 0.1
+  poseformerv4.drop_path_rate:
+    distribution: uniform
+    min: 0.0005
+    max: 0.01
+
+  seed:
+    values: [28] 

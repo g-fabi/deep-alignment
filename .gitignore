@@ -19,3 +19,11 @@ env/
 
 STDAT5.py
 PoseFormerV5.py
+BehaveFormer.py
+STDAT4.py
+
+sweep_stdat_poseformer_utd.yaml
+cmc_behaveformer_poseformerv4_utd.yaml
+cmc_stdat_cooccurrence_utd.yaml
+configs/cmc/cmc_stdat_poseformer_utd.yaml
+

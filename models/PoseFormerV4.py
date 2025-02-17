@@ -254,7 +254,6 @@ class PoseFormer(nn.Module):
         self.Temporal_pos_embed = nn.Parameter(torch.zeros(1, self.num_frame_kept, embed_dim))
         self.Temporal_pos_embed_ = nn.Parameter(torch.zeros(1, self.num_coeff_kept, embed_dim))
         
-        # Add CLS tokens (optional but helps with alignment)
         self.cls_token_spatial = nn.Parameter(torch.zeros(1, 1, embed_dim_ratio))
         self.cls_token_temporal = nn.Parameter(torch.zeros(1, 1, embed_dim))
         trunc_normal_(self.cls_token_spatial, std=.02)

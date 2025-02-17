@@ -33,13 +33,36 @@ def parse_arguments():
     
     # pre-trained models
     parser.add_argument('--pre_trained_paths', nargs='+', default=[])
+    parser.add_argument('--sweep', action='store_true', default=False, help='Enable sweep mode')
 
     return parser.parse_args()
 
 
 def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False, limited_k=None):
     experiment_id = generate_experiment_id()
-
+    experiment_info = {
+        "dataset": args.dataset,
+        "model": 'mm_' + '_'.join([cfg['modalities'][modality]['model'][args.models[i]]['class_name'] for i, modality in enumerate(args.modalities)])
+    }
+    
+    loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(args.modalities), dataset=args.dataset, 
+        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, entity='fabiang',
+        approach='supervised')
+    
+    # if using wandb and performing a sweep, overwrite the config params with the sweep params
+    if args.sweep:
+        _wandb = loggers_dict['wandb'].experiment
+        # Take model kwargs and merge with experiment config
+        for modality, model_name in zip(args.modalities, args.models):
+            model_key_values = {key: _wandb.config[key] for key in _wandb.config.keys() 
+                              if key.startswith(f'{model_name}.')}
+            model_kwargs_dict = flat_to_nested_dict(model_key_values)
+            if model_kwargs_dict != {}:
+                cfg['modalities'][modality]['model'][model_name]['kwargs'] = {
+                        **cfg['modalities'][modality]['model'][model_name]['kwargs'], 
+                        **model_kwargs_dict[model_name]
+                }
+                                
     batch_size = cfg['modalities'][args.modalities[0]]['model'][args.models[0]]['kwargs']['batch_size']
     num_epochs = cfg['experiment']['num_epochs']
     # define transforms for each modality
@@ -64,7 +87,6 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
         cfg['modalities'][modality]['model'][args.models[i]]['kwargs'] = {**dataset_cfg[modality], **cfg['modalities'][modality]['model'][args.models[i]]['kwargs']}
         if args.ssl_pretrained:
             model = init_ssl_pretrained(cfg['modalities'][modality]['model'][args.models[i]], args.pre_trained_paths[i])
-
         else:
             model = init_model(cfg['modalities'][modality]['model'][args.models[i]], dataset_cfg['main_metric'], 
                 ckpt_path=args.pre_trained_paths[i] if args.pre_trained_paths else None)
@@ -73,12 +95,8 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
     if args.ssl_pretrained or args.pre_trained_paths:
         freeze_encoders = True
 
-    model = MultiModalClassifier(models_dict, dataset_cfg[args.modalities[0]]['out_size'], modalities=args.modalities, freeze_encoders=freeze_encoders)
-
-    experiment_info = {
-        "dataset": args.dataset,
-        "model": 'mm_' + '_'.join([cfg['modalities'][modality]['model'][args.models[i]]['class_name'] for i, modality in enumerate(args.modalities)])
-    }
+    lr_mm = cfg['modalities'][args.modalities[0]]['model'][args.models[0]]['kwargs']['lr']
+    model = MultiModalClassifier(models_dict, dataset_cfg[args.modalities[0]]['out_size'], modalities=args.modalities, lr=lr_mm, freeze_encoders=freeze_encoders)
 
     # setup loggers: tensorboards and/or wandb
     if limited_k is not None:
@@ -87,10 +105,6 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
         approach = 'ssl_fusion'
     else:
         approach = 'supervised'
-
-    loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(args.modalities), dataset=args.dataset, 
-        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, entity='fabiang',
-        approach=approach)
 
     # setup callbacks
     callbacks = setup_callbacks(
@@ -105,6 +119,9 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
         model                 = 'mm_' + '_'.join(args.models), 
         experiment_id         = experiment_id
     )
+    from pytorch_lightning.callbacks import LearningRateMonitor
+    lr_monitor = LearningRateMonitor(logging_interval='epoch')  
+    callbacks.append(lr_monitor)
     
     trainer = Trainer.from_argparse_args(
         args=args,
@@ -129,9 +146,21 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
 
     return metrics
 
+def split_args(args):
+    """
+    When running wandb in sweep mode, list arguments are passed as singleton lists (e.g. ["inertial skeleton"] instead of ["inertial", "skeleton"]).
+    This function fixes them.
+    """
+    if len(args.modalities) == 1:
+        args.modalities = args.modalities[0].split()
+    if len(args.models) == 1:
+        args.models = args.models[0].split()
+
+    return args
 
 def main():
     args = parse_arguments()
+    args = split_args(args)
     cfg = load_yaml_to_dict(args.experiment_config_path)
     dataset_cfg = load_yaml_to_dict(args.dataset_config_path)['datasets'][args.dataset]
     seed_everything(cfg['experiment']['seed'])
