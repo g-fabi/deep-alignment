@@ -9,15 +9,19 @@ class PositionalEncoding(nn.Module):
         
         self.embedding = nn.Parameter(torch.zeros([k, d_model], dtype=torch.float), requires_grad=True)
         nn.init.xavier_uniform_(self.embedding, gain=1)
-        self.positions = torch.tensor([i for i in range(seq_len)], requires_grad=False).unsqueeze(1).repeat(1, k)
+        self.positions = torch.tensor([i for i in range(seq_len)], dtype=torch.float, requires_grad=False) \
+                             .unsqueeze(1).repeat(1, k)
         s = 0.0
         interval = seq_len / k
-        mu = []
+        mu_list = []
         for _ in range(k):
-            mu.append(nn.Parameter(torch.tensor(s, dtype=torch.float), requires_grad=True))
+            mu_list.append(torch.tensor(s, dtype=torch.float))
             s = s + interval
-        self.mu = nn.Parameter(torch.tensor(mu, dtype=torch.float).unsqueeze(0), requires_grad=True)
-        self.sigma = nn.Parameter(torch.tensor([torch.tensor([50.0], dtype=torch.float, requires_grad=True) for _ in range(k)]).unsqueeze(0))
+        self.mu = nn.Parameter(torch.stack(mu_list).unsqueeze(0))
+        self.sigma = nn.Parameter(torch.stack([
+            torch.tensor(50.0, dtype=torch.float, requires_grad=True)
+            for _ in range(k)
+        ]).unsqueeze(0))
         
     def normal_pdf(self, pos, mu, sigma):
         a = pos - mu
@@ -129,6 +133,9 @@ class IMUFormer(nn.Module):
         self.out_fc = nn.Linear(d_model, out_size)
         self.out_size = out_size
 
+        # Force all parameters of this encoder to be float32 
+        self.apply(lambda m: m.float())
+
     def forward(self, x):
         """
         Args:
@@ -141,6 +148,8 @@ class IMUFormer(nn.Module):
         # Ensure x is in shape [B, sample_length, in_channels]
         if x.shape[-1] != self.in_channels:
             x = x.transpose(1, 2)
+        # Ensure input tensor dtype matches the layer weights (float32)
+        x = x.to(self.temporal_proj.weight.dtype)
         B, T, C = x.shape
         
         # Temporal Stream 
