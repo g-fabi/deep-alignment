@@ -21,6 +21,8 @@ command:
   - poseformerv4
   - --num-workers
   - 32
+  - --framework
+  - cmc
   - --sweep
 method: bayes
 metric:
@@ -82,6 +84,8 @@ parameters:
     distribution: uniform
     min: 0.0005
     max: 0.01
+  poseformerv4.number_of_kept_coeffs:
+    values: [10, 20, 30]
 
   seed:
     values: [28] 

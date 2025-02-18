@@ -433,22 +433,32 @@ class PoseFormer(nn.Module):
             tuple: (global_features, local_features)
                 - global_features: Tensor of shape [B, embed_dim*2]
                 - local_features: Dict containing:
-                    - 'spatial_tokens': [B, T, J, embed_dim_ratio]
-                    - 'temporal_tokens': [B, T+F, embed_dim]
+                    - 'spatial_skeleton': [B, n_joints, embed_dim_ratio]
+                    - 'temporal_skeleton': [B, sample_length, embed_dim_ratio]
         """
         x = x.squeeze(-1)
         # If input is [B, C, T, J] (C==3), permute to [B, T, J, C]
         if x.shape[1] == 3:
             x = x.permute(0, 2, 3, 1)
-        x_ = x.clone()  # Use the correctly permuted tensor for frequency branch
+        x_ = x.clone()
 
         spatial_tokens, cls_spatial = self.Spatial_forward_features(x)
-        global_feat, local_features = self.forward_features(x_, spatial_tokens, cls_spatial)
+        # Use forward_features only for global feature computation
+        global_feat, _ = self.forward_features(x_, spatial_tokens, cls_spatial)
         global_feat = global_feat.view(x.shape[0], -1)
         
-        # Add final projection through head
+        # Final projection through head
         global_feat = self.head(global_feat)
-            
+
+        # For spatial skeleton, average the spatial tokens (of shape [B, sample_length, n_joints, embed_dim_ratio])
+        #  along the temporal dimension to get [B, n_joints, embed_dim_ratio].
+        # For temporal skeleton, use the CLS token from each frame (squeezing the singleton dimension)
+        #  to get [B, sample_length, embed_dim_ratio].
+        local_features = {
+            'spatial_skeleton': spatial_tokens.mean(dim=1),   # [B, n_joints, embed_dim_ratio]
+            'temporal_skeleton': cls_spatial.squeeze(2)         # [B, sample_length, embed_dim_ratio]
+        }
+
         return global_feat, local_features
 
     @property

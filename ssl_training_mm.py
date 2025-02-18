@@ -5,6 +5,8 @@ from models.cmc import ContrastiveMultiviewCoding
 from models.cmc_cvkm import ContrastiveMultiviewCodingCVKM
 from models.multimodal import MultiModalClassifier
 from models.similarity_metrics.latent_space_similarity import LatentSpaceSimilarity
+from models.deep_alignment import DeepAlignmentLoss, DeepAlignmentModel
+import torch
 
 from utils.experiment_utils import (dict_to_json, generate_experiment_id,
                                     load_yaml_to_dict)
@@ -23,7 +25,7 @@ def parse_arguments():
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--data_path', required=True)
     parser.add_argument('--protocol', default='cross_subject')
-    parser.add_argument('--framework', default='cmc', choices=["cmc", "cmc-cmkm"])
+    parser.add_argument('--framework', default='cmc', choices=["cmc", "cmc-cmkm", "da"])
     parser.add_argument('--modalities', required=True, nargs='+')
     parser.add_argument('--models', required=True, nargs='+')
     parser.add_argument('--model_save_path', default='./model_weights')
@@ -61,16 +63,27 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         if ssl_kwargs_dict != {}:
             ssl_cfg['kwargs'] = {**ssl_cfg['kwargs'], **ssl_kwargs_dict['ssl']}
 
-    # Initialize transforms (+ augmentations) and overwrite sample_length using model definition.
-    train_transforms = {}
-    test_transforms = {}
-    for m in modalities:
-        _, transform_cfg = check_sampling_cfg(model_cfgs[m], transform_cfgs[m])
-        cur_train_transforms, cur_test_transforms = init_transforms(m, transform_cfg,
-                                                                    ssl_random_augmentations=True,
-                                                                    random_augmentations_dict=augmentation_cfgs[m])
-        train_transforms.update(cur_train_transforms)
-        test_transforms.update(cur_test_transforms)
+    # Initialize transforms (+ augmentations)
+    if args.framework == 'da':
+        train_transforms = {}
+        test_transforms = {}
+        for m in modalities:
+            _, transform_cfg = check_sampling_cfg(model_cfgs[m], transform_cfgs[m])
+            cur_train_transforms, cur_test_transforms = init_transforms(m, transform_cfg,
+                                                                        ssl_random_augmentations=False,
+                                                                        random_augmentations_dict={})
+            train_transforms.update(cur_train_transforms)
+            test_transforms.update(cur_test_transforms)
+    else:
+        train_transforms = {}
+        test_transforms = {}
+        for m in modalities:
+            _, transform_cfg = check_sampling_cfg(model_cfgs[m], transform_cfgs[m])
+            cur_train_transforms, cur_test_transforms = init_transforms(m, transform_cfg,
+                                                                        ssl_random_augmentations=True,
+                                                                        random_augmentations_dict=augmentation_cfgs[m])
+            train_transforms.update(cur_train_transforms)
+            test_transforms.update(cur_test_transforms)
 
     # Initialize datamodule.
     batch_size = ssl_cfg['kwargs']['batch_size']
@@ -92,6 +105,16 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
     elif args.framework == 'cmc-cmkm':
         similarity_metrics = init_similarity_metrics(args, modalities, ssl_cfg, dataset_cfg)
         model = ContrastiveMultiviewCodingCVKM(modalities, encoders, similarity_metrics, **ssl_cfg['kwargs'])
+    elif args.framework == 'da':
+        if len(modalities) != 2:
+            raise ValueError("Deep Alignment pretraining requires exactly 2 modalities.")
+        loss_fn = DeepAlignmentLoss(
+            beta=ssl_cfg.get('da_beta', 0.5),
+            iteration=ssl_cfg.get('da_iteration', 50),
+            weight_spatial=ssl_cfg.get('weight_spatial', 1.0),
+            weight_temporal=ssl_cfg.get('weight_temporal', 1.0)
+        )
+        model = DeepAlignmentModel(modalities, encoders, loss_fn, **ssl_cfg['kwargs'])
 
     # Setup training callbacks.
     callbacks = setup_callbacks_ssl(

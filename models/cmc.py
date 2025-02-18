@@ -97,9 +97,9 @@ class ContrastiveMultiviewCoding(LightningModule):
         for m in self.modalities:
             outs[m] = self._forward_one_modality(m, x)
             # Log feature stats
-            self.log(f"{m}_feat_mean", outs[m].mean())
-            self.log(f"{m}_feat_std", outs[m].std())
-            self.log(f"{m}_feat_max", outs[m].max())
+            # self.log(f"{m}_feat_mean", outs[m].mean())
+            # self.log(f"{m}_feat_std", outs[m].std())
+            # self.log(f"{m}_feat_max", outs[m].max())
         return outs
 
     def training_step(self, batch, batch_idx):
@@ -114,6 +114,9 @@ class ContrastiveMultiviewCoding(LightningModule):
         # for name, param in self.encoders.named_parameters():
         #     if param.grad is not None:
         #         self.log(f"grad_norm/{name}", param.grad.norm())
+        if self.trainer is not None and self.trainer.optimizers:
+            current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.log("learning_rate", current_lr, on_step=True, prog_bar=False)
         return loss
 
     def validation_step(self, batch, batch_idx):

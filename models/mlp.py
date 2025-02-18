@@ -127,3 +127,15 @@ class ProjectionMLP(nn.Module):
 		x = self.linear1(x)
 		x = self.linear2(x)
 		return x
+
+class DAProjectionLayer(nn.Module):
+    def __init__(self, out_features):
+        super().__init__()
+        self.out_features = out_features
+        self.linear = None
+
+    def forward(self, x):
+        if self.linear is None:
+            in_features = x.size(-1)
+            self.linear = nn.Linear(in_features, self.out_features).to(x.device)
+        return self.linear(x)
