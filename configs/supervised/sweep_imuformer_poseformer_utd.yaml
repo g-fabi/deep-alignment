@@ -1,0 +1,80 @@
+program: supervised_training_mm.py
+name: supervised_imupose_sweep_testacc_utd
+command:
+  - python
+  - supervised_training_mm.py
+  - --experiment_config_path
+  - configs/supervised/supervised_imuformer_poseformer_utd.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - imuformer
+  - poseformer
+  - --sweep
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  imuformer.lr:
+    distribution: uniform
+    min: 0.00001
+    max: 0.005
+  imuformer.batch_size:
+    values: [32, 64]
+  imuformer.d_model:
+    values: [32, 128, 256]
+  imuformer.num_layers:
+    values: [3, 5, 7, 9]
+  imuformer.heads:
+    values: [4, 8, 16]
+  imuformer._heads:
+    values: [1, 2,]
+  imuformer.pe_k:
+    values: [10, 20, 30, 40, 50]
+  imuformer.cnn_units:
+    values: [1, 2, 4, 6]
+  imuformer.cnn_kernel_sizes:
+    values: 
+      - [[1,1], [3,3], [5,5]]
+      - [[1,1], [5,5], [7,7]]
+      - [[1,1], [7,7], [9,9]]
+  imuformer.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+  poseformer.opt.layers:
+    values: [6, 8, 10, 12]
+  poseformer.opt.number_of_kept_frames:
+    values: [50]
+  poseformer.opt.number_of_kept_coeffs:
+    values: [20, 30, 50]
+  poseformer.opt.naive:
+    values: [true, false]
+  poseformer.embed_dim_ratio:
+    values: [16, 32, 64, 128]
+  poseformer.num_heads:
+    values: [4, 8, 16]
+  poseformer.mlp_ratio:
+    values: [2.0, 4.0, 6.0]
+  poseformer.drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.3
+  poseformer.attn_drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.1
+  poseformer.drop_path_rate:
+    distribution: uniform
+    min: 0.001
+    max: 0.05
+  seed:
+    values: [28] 

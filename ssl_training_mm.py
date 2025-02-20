@@ -26,7 +26,7 @@ def parse_arguments():
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--data_path', required=True)
     parser.add_argument('--protocol', default='cross_subject')
-    parser.add_argument('--framework', default='cmc', choices=["cmc", "cmc-cmkm", "da", "cmc_da"])
+    parser.add_argument('--framework', default='cmc', choices=["cmc", "cmc-cmkm", "da", "cmc-da"])
     parser.add_argument('--modalities', required=True, nargs='+')
     parser.add_argument('--models', required=True, nargs='+')
     parser.add_argument('--model_save_path', default='./model_weights')
@@ -116,7 +116,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
             weight_temporal=ssl_cfg.get('weight_temporal', 1.0)
         )
         model = DeepAlignmentModel(modalities, encoders, loss_fn, **ssl_cfg['kwargs'])
-    elif args.framework == 'cmc_da':
+    elif args.framework == 'cmc-da':
         if len(modalities) != 2:
             raise ValueError("CMC_DA pretraining requires exactly 2 modalities.")
         if "optimizer_name_ssl" in ssl_cfg["kwargs"]:

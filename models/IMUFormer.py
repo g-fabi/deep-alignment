@@ -135,7 +135,8 @@ class IMUFormer(nn.Module):
 
         # Force all parameters of this encoder to be float32 
         self.apply(lambda m: m.float())
-
+        self.__dict__['imuformer'] = self
+        
     def forward(self, x):
         """
         Args:

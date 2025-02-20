@@ -1,27 +1,7 @@
 experiment:
   seed: 28
-  num_epochs_ssl: 150
-  num_epochs_fine_tuning: 150
-  batch_size_fine_tuning: 64
-
-ssl:
-  args: []
-  kwargs:
-    temperature: 0.17
-#    sample_length: 50
-    batch_size: 64
-    hidden: [256, 128]
-    lr: 0.0007814
-    optimizer_name_ssl: "adam"
-    #lambda_da: 1.0
-    init_log_sigma_ntxent: 0.0
-    init_log_sigma_da: 0.0
-    da_kwargs:
-      weight_spatial: 1.0
-      weight_temporal: 1.0
-      beta: 0.2
-      iteration: 25
-      common_dim: 512
+  num_epochs: 150
+  batch_size: 64
 
 modalities:
   inertial:
@@ -33,15 +13,19 @@ modalities:
         encoder_name: imuformer
         args: []
         kwargs:
-          d_model: 32
-          num_layers: 7
-          heads: 16
-          _heads: 2
+          d_model: 128
+          num_layers: 5
+          heads: 4
+          _heads: 1
           sample_length: 50
-          dropout: 0.19943472457523329
-          pe_k: 50
-          cnn_units: 6
+          dropout: 0.0353
+          pe_k: 20
+          cnn_units: 1
           cnn_kernel_sizes: [[1,1], [3,3], [5,5]]
+          batch_size: 64
+          lr: 0.0001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
     transforms:
       - class_name: InertialSampler
         from_module: inertial_transforms
@@ -66,26 +50,30 @@ modalities:
 
   skeleton:
     model:
-      poseformerv4:
+      poseformer:
         class_name: PoseFormer
         from_module: PoseFormerV4
         encoder_class_name: PoseFormer
-        encoder_name: poseformerv4
+        encoder_name: poseformer
         args: []
         kwargs:
           sample_length: 50
           opt:
-            layers: 8
+            layers: 12
             number_of_kept_frames: 50
-            number_of_kept_coeffs: 50
+            number_of_kept_coeffs: 20
             naive: false
-          embed_dim_ratio: 64
+          embed_dim_ratio: 16
           num_heads: 8
-          mlp_ratio: 6.0
+          mlp_ratio: 2.0
           qkv_bias: true
-          drop_rate: 0.13486986785243843
-          attn_drop_rate: 0.02629266491207646
-          drop_path_rate: 0.020530600737858742
+          drop_rate: 0.09
+          attn_drop_rate: 0.0263
+          drop_path_rate: 0.000685
+          batch_size: 64
+          lr: 0.001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
     transforms:
       - class_name: RecenterJoints
         from_module: skeleton_transforms
@@ -114,4 +102,4 @@ modalities:
           shape: [1, 2, 0]
       - class_name: ToFloat
         from_module: general_transforms
-        in_test: true
+        in_test: true 

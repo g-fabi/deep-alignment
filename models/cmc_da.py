@@ -62,7 +62,7 @@ class ContrastiveMultiviewCodingDA(LightningModule):
          total_loss = ntxent_loss + lambda_da * deep_alignment_loss
     """
     def __init__(self, modalities, encoders, hidden=[256, 128], batch_size=64, temperature=0.1, 
-                 optimizer_name='adam', lr=0.001, lambda_da=1.0, da_kwargs=None):
+                 optimizer_name='adam', lr=0.001, lambda_da=1.0, init_log_sigma_ntxent=0.0, init_log_sigma_da=0.0, da_kwargs=None):
         """
         Args:
           modalities: List of modality names
@@ -76,7 +76,7 @@ class ContrastiveMultiviewCodingDA(LightningModule):
           da_kwargs: Optional kwargs for DeepAlignmentLoss (e.g., weight_spatial, beta, iteration)
         """
         super().__init__()
-        self.save_hyperparameters('modalities', 'hidden', 'batch_size', 'temperature', 'optimizer_name', 'lr', 'lambda_da')
+        self.save_hyperparameters('modalities', 'hidden', 'batch_size', 'temperature', 'optimizer_name', 'lr', 'lambda_da', 'init_log_sigma_ntxent', 'init_log_sigma_da')
         self.modalities = modalities
         self.encoders = nn.ModuleDict(encoders)
         
@@ -100,6 +100,11 @@ class ContrastiveMultiviewCodingDA(LightningModule):
         self.optimizer_name = optimizer_name
         self.lr = lr
         self.lambda_da = lambda_da
+        
+        # Learnable loss weighting parameters
+        # Initialize log_sigma_ntxent and log_sigma_da to 0 so that exp(0)=1 initially.
+        self.log_sigma_ntxent = nn.Parameter(torch.tensor(init_log_sigma_ntxent))
+        self.log_sigma_da = nn.Parameter(torch.tensor(init_log_sigma_da))
 
     def _forward_modality(self, modality, x):
         out = self.encoders[modality](x)
@@ -163,7 +168,13 @@ class ContrastiveMultiviewCodingDA(LightningModule):
             spatial_tokens[m1], spatial_tokens[m2], temporal_tokens[m1], temporal_tokens[m2]
         )
         
-        total_loss = loss_ntxent + self.lambda_da * loss_da
+        # Compute weighted losses using uncertainty weighting
+        weighted_ntxent = torch.exp(-self.log_sigma_ntxent) * loss_ntxent + self.log_sigma_ntxent
+        weighted_da = torch.exp(-self.log_sigma_da) * loss_da + self.log_sigma_da
+        total_loss = weighted_ntxent + weighted_da
+
+        self.log("log_sigma_ntxent", self.log_sigma_ntxent)
+        self.log("log_sigma_da", self.log_sigma_da)
         self.log("ssl_train_loss", total_loss)
         self.log("cmc_loss", loss_ntxent)
         self.log("da_loss", loss_da)
