@@ -160,6 +160,14 @@ def setup_callbacks(early_stopping_metric, early_stopping_mode, class_names, num
 
 def setup_callbacks_ssl(no_ckpt, model_weights_path, dataset, model, experiment_id):
     callbacks = []
+    # Add early stopping callback for SSL pre-training
+    callbacks.append(EarlyStopping(
+        monitor='ssl_val_loss',
+        min_delta=0.00,
+        patience=50,
+        verbose=True,
+        mode='min'
+    ))
     if not no_ckpt:
         callbacks.append(setup_model_checkpoint_callback_last(model_weights_path, dataset, model, experiment_id))
     return callbacks

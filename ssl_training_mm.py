@@ -8,6 +8,8 @@ from models.similarity_metrics.latent_space_similarity import LatentSpaceSimilar
 from models.deep_alignment import DeepAlignmentLoss, DeepAlignmentModel
 from models.cmc_da import ContrastiveMultiviewCodingDA
 import torch
+import json
+import os
 
 from utils.experiment_utils import (dict_to_json, generate_experiment_id,
                                     load_yaml_to_dict)
@@ -56,13 +58,23 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         _wandb = loggers_dict['wandb'].experiment
 
         # Take some specific parameters.
-        num_epochs = _wandb.config["num_epochs_ssl"]
+        if "num_epochs_ssl" in _wandb.config:
+            num_epochs = _wandb.config["num_epochs_ssl"]
 
         # Take SSL model kwargs and merge with experiment config.
         ssl_key_values = {key: _wandb.config[key] for key in _wandb.config.keys() if key.startswith('ssl.')}
         ssl_kwargs_dict = flat_to_nested_dict(ssl_key_values)
         if ssl_kwargs_dict != {}:
             ssl_cfg['kwargs'] = {**ssl_cfg['kwargs'], **ssl_kwargs_dict['ssl']}
+            
+        # After applying sweep parameters, save the full configuration
+        full_config = {
+            "experiment": experiment_cfg,
+            "ssl": ssl_cfg,
+            "modalities": {m: model_cfgs[m] for m in modalities}
+        }
+        with open(os.path.join(_wandb.dir, "full_config.json"), 'w') as f:
+            json.dump(full_config, f, indent=2, default=str)
 
     # Initialize transforms (+ augmentations)
     if args.framework == 'da':
@@ -131,6 +143,8 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         model                 = "mm_ssl_" + args.framework + '_' + "_".join(args.models), 
         experiment_id         = experiment_id,
     )
+    
+    early_stopping_callback = next((cb for cb in callbacks if isinstance(cb, EarlyStopping)), None)
 
     trainer = Trainer.from_argparse_args(
         args=args,
@@ -145,8 +159,17 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         log_every_n_steps=1
     )
     trainer.fit(model, datamodule)
+    
+    was_early_stopped = False
+    if early_stopping_callback and early_stopping_callback.stopped_epoch > 0:
+        was_early_stopped = True
+        print(f"SSL pre-training was early stopped at epoch {early_stopping_callback.stopped_epoch}")
+        
+        if args.sweep and 'wandb' in loggers_dict:
+            loggers_dict['wandb'].experiment.log({"early_stopped": True, 
+                                                 "stopped_epoch": early_stopping_callback.stopped_epoch})
 
-    return encoders, loggers_list, loggers_dict, experiment_id
+    return encoders, loggers_list, loggers_dict, experiment_id, was_early_stopped
 
 def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id, limited_k=None):
     seed_everything(experiment_cfg['seed']) # reset seed for consistency in results
@@ -312,12 +335,23 @@ def validate_args(args):
         print("Need to provide --fine_tuning_ckpt_path if running with --fine_tuning!")
         exit(1)
 
-def run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs):
+def run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, existing_loggers=None):
     experiment_id = generate_experiment_id()
     modalities = args.modalities
-    loggers_list, loggers_dict = init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id)
     
-    encoders, loggers_list, loggers_dict, experiment_id = ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, experiment_id, loggers_list, loggers_dict)
+    # Use existing loggers if provided
+    if existing_loggers:
+        loggers_list, loggers_dict = existing_loggers
+    else:
+        loggers_list, loggers_dict = init_loggers(args, modalities, experiment_cfg, ssl_cfg, model_cfgs, augmentation_cfgs, experiment_id)
+    
+    encoders, loggers_list, loggers_dict, experiment_id, was_early_stopped = ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, experiment_id, loggers_list, loggers_dict)
+    
+    # Log if early stopping occurred, but still proceed with fine-tuning
+    if was_early_stopped:
+        if args.sweep and 'wandb' in loggers_dict:
+            loggers_dict['wandb'].experiment.log({"early_stopped_but_finetuned": True})
+    
     result_metrics = fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id)
     return result_metrics
 
@@ -338,10 +372,31 @@ def main():
     validate_args(args)
     experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs = parse_all_cfgs(args)
     
+    existing_loggers = None
+    if args.sweep:
+        experiment_id = generate_experiment_id()
+        experiment_info = {
+            "dataset": args.dataset,
+            "ssl_framework": args.framework,
+            "model": 'mm_ssl_' + '_'.join(['placeholder' for _ in args.modalities])
+        }
+        loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, 
+                                        modality='mm_' + '_'.join(args.modalities), 
+                                        dataset=args.dataset, experiment_id=experiment_id, 
+                                        experiment_config_path=args.experiment_config_path, 
+                                        entity='fabiang', approach='mm_ssl')
+        existing_loggers = (loggers_list, loggers_dict)
+        
+        if 'seed' in loggers_dict['wandb'].experiment.config:
+            experiment_cfg['seed'] = loggers_dict['wandb'].experiment.config['seed']
+            print(f"Using seed from wandb config: {experiment_cfg['seed']}")
+    
+    seed_everything(experiment_cfg['seed'])
+    
     if args.fine_tuning:
         run_fine_tuning_only(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs)
     else:
-        run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs)
+        run_one_experiment(args, experiment_cfg, ssl_cfg, dataset_cfg, model_cfgs, transform_cfgs, augmentation_cfgs, existing_loggers)
 
 if __name__ == '__main__':
     main()

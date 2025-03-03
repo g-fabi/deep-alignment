@@ -25,12 +25,19 @@ command:
   - --framework
   - cmc
   - --sweep
+  - --max_epochs=150
 method: bayes
 metric:
   name: ssl_val_loss
   goal: minimize
+
+early_terminate:
+  type: hyperband
+  min_iter: 25  # Minimum number of epochs before considering early termination
+  eta: 3        # Reduction factor for successive halving
+  s: 2          # Number of brackets
+  max_iter: 150 # Maximum number of epochs
 parameters:
-  # SSL training parameters
   ssl.temperature:
     distribution: uniform
     min: 0.05
@@ -41,6 +48,10 @@ parameters:
     max: 0.001
   ssl.batch_size:
     values: [16, 32, 64]
+  ssl.hidden:
+    values:
+      - [256, 128]
+      - [512, 256]
 
   # # IMUFormer (inertial) parameters
   # imuformer.d_model:

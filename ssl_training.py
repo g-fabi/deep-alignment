@@ -177,7 +177,7 @@ def init_loggers(args, modality, cfg, experiment_id, fine_tune_only=False):
         dataset=args.dataset, 
         experiment_id=experiment_id, 
         experiment_config_path=args.experiment_config_path, 
-        entity='my_wandb_entity',
+        entity='fabiang',
         approach='ssl'
     )
     return loggers_list, loggers_dict

@@ -1,5 +1,5 @@
 program: supervised_training_mm.py
-name: supervised_imupose_sweep_testacc_utd
+name: supervised_imupose_final_sweep_utd
 command:
   - python
   - supervised_training_mm.py
@@ -18,25 +18,41 @@ command:
   - imuformer
   - poseformer
   - --sweep
+  - --max_epochs=150
 method: bayes
 metric:
   name: val_loss
   goal: minimize
+# Enable early stopping with hyperband strategy
+early_terminate:
+  type: hyperband
+  min_iter: 10  # Minimum number of epochs before considering early termination
+  eta: 3        # Reduction factor for successive halving
+  s: 2          # Number of brackets
+  max_iter: 150 # Maximum number of epochs
 parameters:
+  seed:
+    values: [28]
+  batch_size:
+    values: [32, 64]
+  
   imuformer.lr:
     distribution: uniform
     min: 0.00001
     max: 0.005
-  imuformer.batch_size:
-    values: [32, 64]
   imuformer.d_model:
-    values: [32, 128, 256]
-  imuformer.num_layers:
-    values: [3, 5, 7, 9]
+    values: [64, 128, 256]
+  
+  # IMUFormer heads must divide d_model
   imuformer.heads:
     values: [4, 8, 16]
+  imuformer.num_layers:
+    values: [3, 5, 7, 10]
+  
+  # IMUFormer _heads must divide BOTH in_channels (6) AND sample_length (60)
+  # Common divisors of 6 and 60 are: 1, 2, 3, and 6
   imuformer._heads:
-    values: [1, 2,]
+    values: [1, 2, 3, 6]
   imuformer.pe_k:
     values: [10, 20, 30, 40, 50]
   imuformer.cnn_units:
@@ -53,13 +69,13 @@ parameters:
   poseformer.opt.layers:
     values: [6, 8, 10, 12]
   poseformer.opt.number_of_kept_frames:
-    values: [50]
+    values: [60]
   poseformer.opt.number_of_kept_coeffs:
-    values: [20, 30, 50]
+    values: [10, 30, 60]
   poseformer.opt.naive:
     values: [true, false]
   poseformer.embed_dim_ratio:
-    values: [16, 32, 64, 128]
+    values: [16, 32, 64, 128, 256]
   poseformer.num_heads:
     values: [4, 8, 16]
   poseformer.mlp_ratio:
@@ -76,5 +92,3 @@ parameters:
     distribution: uniform
     min: 0.001
     max: 0.05
-  seed:
-    values: [28] 

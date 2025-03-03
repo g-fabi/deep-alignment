@@ -71,7 +71,11 @@ class SimCLRUnimodal(LightningModule):
         self.loss = NTXent(batch_size, n_views, temperature)
 
     def forward(self, x):
+        # Handle both standard encoders and IMUFormer/PoseFormer
         x = self.encoder(x)
+        if isinstance(x, tuple):
+            # IMUFormer/PoseFormer return (global_features, local_features)
+            x = x[0]  # Use global features
         x = nn.Flatten()(x)
         x = self.projection(x)
         return x

@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 
 from pytorch_lightning import Trainer, seed_everything
 
@@ -33,21 +35,23 @@ def parse_arguments():
     
     # pre-trained models
     parser.add_argument('--pre_trained_paths', nargs='+', default=[])
-    parser.add_argument('--sweep', action='store_true', default=False, help='Enable sweep mode')
-
+    parser.add_argument('--sweep', action='store_true', default=False, help='Enable sweep mode') 
     return parser.parse_args()
 
 
-def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False, limited_k=None):
-    experiment_id = generate_experiment_id()
+def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False, limited_k=None, existing_loggers=None):
+    experiment_id = generate_experiment_id() if existing_loggers is None else None
     experiment_info = {
         "dataset": args.dataset,
         "model": 'mm_' + '_'.join([cfg['modalities'][modality]['model'][args.models[i]]['class_name'] for i, modality in enumerate(args.modalities)])
     }
     
-    loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(args.modalities), dataset=args.dataset, 
-        experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, entity='fabiang',
-        approach='supervised')
+    if existing_loggers is None:
+        loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, modality='mm_' + '_'.join(args.modalities), dataset=args.dataset, 
+            experiment_id=experiment_id, experiment_config_path=args.experiment_config_path, entity='fabiang',
+            approach='supervised')
+    else:
+        loggers_list, loggers_dict = existing_loggers
     
     # if using wandb and performing a sweep, overwrite the config params with the sweep params
     if args.sweep:
@@ -63,8 +67,19 @@ def train_test_supervised_mm_model(args, cfg, dataset_cfg, freeze_encoders=False
                         **model_kwargs_dict[model_name]
                 }
                                 
+            if 'batch_size' in _wandb.config:
+                cfg['modalities'][modality]['model'][model_name]['kwargs']['batch_size'] = _wandb.config['batch_size']
+
+        # After applying sweep parameters, save the full configuration immediately
+        if 'wandb' in loggers_dict:
+            with open(os.path.join(loggers_dict['wandb'].experiment.dir, "full_config.json"), 'w') as f:
+                json.dump(cfg, f, indent=2, default=str)
+
+    # if args.sweep:
+    #     print("Final configuration after sweep:", json.dumps(cfg, indent=2, default=str))
+
     batch_size = cfg['modalities'][args.modalities[0]]['model'][args.models[0]]['kwargs']['batch_size']
-    num_epochs = cfg['experiment']['num_epochs']
+    num_epochs = args.max_epochs if args.max_epochs is not None else cfg['experiment']['num_epochs']
     # define transforms for each modality
     train_transforms = {}
     test_transforms = {}
@@ -163,8 +178,27 @@ def main():
     args = split_args(args)
     cfg = load_yaml_to_dict(args.experiment_config_path)
     dataset_cfg = load_yaml_to_dict(args.dataset_config_path)['datasets'][args.dataset]
+    
+    existing_loggers = None
+    if args.sweep:
+        experiment_id = generate_experiment_id()
+        experiment_info = {
+            "dataset": args.dataset,
+            "model": 'mm_' + '_'.join(['placeholder' for _ in args.modalities])
+        }
+        loggers_list, loggers_dict = setup_loggers(tb_dir="tb_logs", experiment_info=experiment_info, 
+                                        modality='mm_' + '_'.join(args.modalities), 
+                                        dataset=args.dataset, experiment_id=experiment_id, 
+                                        experiment_config_path=args.experiment_config_path, 
+                                        entity='fabiang', approach='supervised')
+        existing_loggers = (loggers_list, loggers_dict)
+        
+        if 'seed' in loggers_dict['wandb'].experiment.config:
+            cfg['experiment']['seed'] = loggers_dict['wandb'].experiment.config['seed']
+            print(f"Using seed from wandb config: {cfg['experiment']['seed']}")
+    
     seed_everything(cfg['experiment']['seed'])
-    train_test_supervised_mm_model(args, cfg, dataset_cfg)
+    train_test_supervised_mm_model(args, cfg, dataset_cfg, existing_loggers=existing_loggers)
 
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from pytorch_lightning.core.lightning import LightningModule
 from models.mlp import ProjectionMLP
 from models.deep_alignment import DeepAlignmentLoss
+from models.loss_weighting import LossWeightingStrategy, UncertaintyWeighting, ConstantWeighting
 
 class MM_NTXent(LightningModule):
     """
@@ -58,11 +59,11 @@ class ContrastiveMultiviewCodingDA(LightningModule):
         for the NTXent contrastive loss.
       • A deep alignment branch that extracts spatial and temporal tokens from the encoder output.
     
-    The final training loss is:
-         total_loss = ntxent_loss + lambda_da * deep_alignment_loss
+    The final training loss is computed using a configurable weighting strategy between
+    the NTXent and Deep Alignment losses.
     """
     def __init__(self, modalities, encoders, hidden=[256, 128], batch_size=64, temperature=0.1, 
-                 optimizer_name='adam', lr=0.001, lambda_da=1.0, init_log_sigma_ntxent=0.0, init_log_sigma_da=0.0, da_kwargs=None):
+                 optimizer_name='adam', lr=0.001, weighting=None, da_kwargs=None):
         """
         Args:
           modalities: List of modality names
@@ -72,11 +73,11 @@ class ContrastiveMultiviewCodingDA(LightningModule):
           temperature: Temperature for NTXent loss.
           optimizer_name: Optimizer name.
           lr: Learning rate.
-          lambda_da: Weight to balance the deep alignment loss.
+          weighting: Dictionary containing weighting configuration
           da_kwargs: Optional kwargs for DeepAlignmentLoss (e.g., weight_spatial, beta, iteration)
         """
         super().__init__()
-        self.save_hyperparameters('modalities', 'hidden', 'batch_size', 'temperature', 'optimizer_name', 'lr', 'lambda_da', 'init_log_sigma_ntxent', 'init_log_sigma_da')
+        self.save_hyperparameters('modalities', 'hidden', 'batch_size', 'temperature', 'optimizer_name', 'lr')
         self.modalities = modalities
         self.encoders = nn.ModuleDict(encoders)
         
@@ -99,12 +100,22 @@ class ContrastiveMultiviewCodingDA(LightningModule):
         
         self.optimizer_name = optimizer_name
         self.lr = lr
-        self.lambda_da = lambda_da
-        
-        # Learnable loss weighting parameters
-        # Initialize log_sigma_ntxent and log_sigma_da to 0 so that exp(0)=1 initially.
-        self.log_sigma_ntxent = nn.Parameter(torch.tensor(init_log_sigma_ntxent))
-        self.log_sigma_da = nn.Parameter(torch.tensor(init_log_sigma_da))
+
+        # Initialize loss weighting strategy based on config
+        if weighting is None:
+            weighting = {"uncertainty": False, "constant": True}
+            
+        if weighting["uncertainty"] and weighting["constant"]:
+            raise ValueError("Cannot use both uncertainty and constant weighting simultaneously")
+        elif not weighting["uncertainty"] and not weighting["constant"]:
+            raise ValueError("Must enable either uncertainty or constant weighting")
+            
+        if weighting["uncertainty"]:
+            params = weighting.get("uncertainty_params", {})
+            self.weighting = UncertaintyWeighting(**params)
+        else:  # constant weighting
+            params = weighting.get("constant_params", {})
+            self.weighting = ConstantWeighting(**params)
 
     def _forward_modality(self, modality, x):
         out = self.encoders[modality](x)
@@ -168,13 +179,14 @@ class ContrastiveMultiviewCodingDA(LightningModule):
             spatial_tokens[m1], spatial_tokens[m2], temporal_tokens[m1], temporal_tokens[m2]
         )
         
-        # Compute weighted losses using uncertainty weighting
-        weighted_ntxent = torch.exp(-self.log_sigma_ntxent) * loss_ntxent + self.log_sigma_ntxent
-        weighted_da = torch.exp(-self.log_sigma_da) * loss_da + self.log_sigma_da
+        # Apply weighting strategy
+        weighted_ntxent, weighted_da = self.weighting.weight_losses(loss_ntxent, loss_da)
         total_loss = weighted_ntxent + weighted_da
 
-        self.log("log_sigma_ntxent", self.log_sigma_ntxent)
-        self.log("log_sigma_da", self.log_sigma_da)
+        # Log weighting parameters if any
+        for name, value in self.weighting.get_log_vars().items():
+            self.log(name, value)
+
         self.log("ssl_train_loss", total_loss)
         self.log("cmc_loss", loss_ntxent)
         self.log("da_loss", loss_da)
@@ -200,7 +212,10 @@ class ContrastiveMultiviewCodingDA(LightningModule):
             spatial_tokens[m1], spatial_tokens[m2], temporal_tokens[m1], temporal_tokens[m2]
         )
         
-        total_loss = loss_ntxent + self.lambda_da * loss_da
+        # Apply weighting strategy
+        weighted_ntxent, weighted_da = self.weighting.weight_losses(loss_ntxent, loss_da)
+        total_loss = weighted_ntxent + weighted_da
+
         self.log("ssl_val_loss", total_loss)
         self.log("cmc_val_loss", loss_ntxent)
         self.log("da_val_loss", loss_da)

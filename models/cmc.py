@@ -116,7 +116,7 @@ class ContrastiveMultiviewCoding(LightningModule):
         #         self.log(f"grad_norm/{name}", param.grad.norm())
         if self.trainer is not None and self.trainer.optimizers:
             current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
-            self.log("learning_rate", current_lr, on_step=True, prog_bar=False)
+            self.log("learning_rate", current_lr, on_step=True, on_epoch=True, prog_bar=False)
         return loss
 
     def validation_step(self, batch, batch_idx):

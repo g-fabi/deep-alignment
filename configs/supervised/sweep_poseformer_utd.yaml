@@ -1,0 +1,57 @@
+program: supervised_training.py
+name: supervised_poseformer_sweep_utd
+command:
+  - python
+  - supervised_training.py
+  - --experiment_config_path
+  - configs/supervised/supervised_poseformer_utd.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets/utd_mhad
+  - --model
+  - poseformer
+  - --sweep
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  modalities.skeleton.model.poseformer.kwargs.opt.layers:
+    values: [4, 6, 8, 10, 12, 14]
+  modalities.skeleton.model.poseformer.kwargs.opt.number_of_kept_coeffs:
+    values: [10, 20, 30, 40, 50]
+  modalities.skeleton.model.poseformer.kwargs.opt.naive:
+    values: [true, false]
+  modalities.skeleton.model.poseformer.kwargs.embed_dim_ratio:
+    values: [16, 32, 64, 128, 256, 512]
+  modalities.skeleton.model.poseformer.kwargs.num_heads:
+    values: [4, 8, 12, 16, 20]
+  modalities.skeleton.model.poseformer.kwargs.mlp_ratio:
+    values: [2.0, 3.0, 4.0, 6.0, 8.0]
+  modalities.skeleton.model.poseformer.kwargs.qkv_bias:
+    values: [true, false]
+  modalities.skeleton.model.poseformer.kwargs.drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  modalities.skeleton.model.poseformer.kwargs.attn_drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.3
+  modalities.skeleton.model.poseformer.kwargs.drop_path_rate:
+    distribution: uniform
+    min: 0.001
+    max: 0.1
+  modalities.skeleton.model.poseformer.kwargs.weight_decay:
+    distribution: uniform
+    min: 0.001
+    max: 0.1
+  modalities.skeleton.model.poseformer.kwargs.batch_size:
+    values: [32, 64, 128]
+  modalities.skeleton.model.poseformer.kwargs.lr:
+    distribution: uniform
+    min: 0.0001
+    max: 0.01

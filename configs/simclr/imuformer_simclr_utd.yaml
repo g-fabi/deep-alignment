@@ -1,0 +1,57 @@
+experiment:
+  seed: 28
+  num_epochs_ssl: 150
+  num_epochs_fine_tuning: 100
+  batch_size_fine_tuning: 64
+
+modalities:
+  inertial:
+    model:
+      imuformer:
+        class_name: IMUFormer
+        from_module: IMUFormer
+        encoder_class_name: IMUFormer
+        encoder_name: imuformer
+        args: []
+        kwargs:
+          d_model: 32
+          num_layers: 7
+          heads: 16
+          _heads: 2
+          sample_length: 50
+          dropout: 0.19943472457523329
+          pe_k: 50
+          cnn_units: 6
+          cnn_kernel_sizes: [[1,1], [3,3], [5,5]]
+          batch_size: 64
+      ssl:
+        class_name: SimCLRUnimodal
+        from_module: simclr_um
+        kwargs:
+          hidden: [256, 128]
+          batch_size: 64
+          temperature: 0.1
+          n_views: 2
+          optimizer_name_ssl: lars
+          lr: 0.00001
+    transforms:
+      - class_name: InertialSampler
+        from_module: inertial_transforms
+        transform_name: sampling
+        in_test: true
+        kwargs:
+          size: 50
+      - class_name: ToTensor
+        from_module: general_transforms
+        transform_name: to_tensor
+        in_test: true
+      - class_name: Permute
+        from_module: general_transforms
+        transform_name: permutation
+        in_test: true
+        kwargs:
+          shape: [1, 0]
+      - class_name: ToFloat
+        from_module: general_transforms
+        transform_name: to_float
+        in_test: true 

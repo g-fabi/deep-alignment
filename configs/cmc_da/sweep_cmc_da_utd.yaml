@@ -55,4 +55,67 @@ parameters:
   ssl.da_kwargs.weight_temporal:
     distribution: uniform
     min: 0.5
-    max: 1.5 
+    max: 1.5
+
+  # Constant Weighting Parameters
+  ssl.weighting.uncertainty:
+    value: false
+  ssl.weighting.constant:
+    value: true
+  ssl.weighting.constant_params.lambda_ntxent:
+    distribution: uniform
+    min: 0.1
+    max: 5.0
+  ssl.weighting.constant_params.lambda_da:
+    distribution: uniform
+    min: 0.1
+    max: 5.0
+
+  # IMUFormer Parameters
+  modalities.inertial.model.imuformer.kwargs.d_model:
+    values: [32, 128, 256]
+  modalities.inertial.model.imuformer.kwargs.num_layers:
+    values: [3, 5, 7, 12]
+  modalities.inertial.model.imuformer.kwargs.heads:
+    values: [4, 8, 16, 20]
+  modalities.inertial.model.imuformer.kwargs._heads:
+    values: [1, 2]
+  modalities.inertial.model.imuformer.kwargs.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+  modalities.inertial.model.imuformer.kwargs.pe_k:
+    values: [10, 20, 30, 40, 50]
+  modalities.inertial.model.imuformer.kwargs.cnn_units:
+    values: [1, 2, 4, 6]
+  modalities.inertial.model.imuformer.kwargs.cnn_kernel_sizes:
+    values: 
+      - [[1,1], [3,3], [5,5]]
+      - [[1,1], [5,5], [7,7]]
+      - [[1,1], [7,7], [9,9]]
+
+  # PoseFormer Parameters
+  modalities.skeleton.model.poseformerv4.kwargs.opt.layers:
+    values: [6, 8, 10, 12]
+  modalities.skeleton.model.poseformerv4.kwargs.opt.number_of_kept_coeffs:
+    values: [20, 30, 50]
+  modalities.skeleton.model.poseformerv4.kwargs.opt.naive:
+    values: [true, false]
+  modalities.skeleton.model.poseformerv4.kwargs.embed_dim_ratio:
+    values: [16, 32, 64, 128, 256, 512]
+  modalities.skeleton.model.poseformerv4.kwargs.num_heads:
+    values: [4, 8, 16]
+  modalities.skeleton.model.poseformerv4.kwargs.mlp_ratio:
+    values: [2.0, 4.0, 6.0, 8.0]
+  modalities.skeleton.model.poseformerv4.kwargs.drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.3
+  modalities.skeleton.model.poseformerv4.kwargs.attn_drop_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.1
+  modalities.skeleton.model.poseformerv4.kwargs.drop_path_rate:
+    distribution: uniform
+    min: 0.001
+    max: 0.05 

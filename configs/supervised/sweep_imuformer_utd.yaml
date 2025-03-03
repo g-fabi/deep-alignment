@@ -1,0 +1,51 @@
+program: supervised_training.py
+name: supervised_imuformer_sweep_utd
+command:
+  - python
+  - supervised_training.py
+  - --experiment_config_path
+  - configs/supervised/supervised_imuformer_utd.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets/utd_mhad
+  - --model
+  - imuformer
+  - --sweep
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  modalities.inertial.model.imuformer.kwargs.d_model:
+    values: [32, 64, 96, 128, 256, 512]
+  modalities.inertial.model.imuformer.kwargs.num_layers:
+    values: [3, 4, 5, 6, 7, 8, 9]
+  modalities.inertial.model.imuformer.kwargs.heads:
+    values: [4, 8, 12, 16, 20]
+  modalities.inertial.model.imuformer.kwargs._heads:
+    values: [1, 2, 4]
+  modalities.inertial.model.imuformer.kwargs.pe_k:
+    values: [10, 20, 30, 40, 50]
+  modalities.inertial.model.imuformer.kwargs.cnn_units:
+    values: [1, 2, 4, 6, 8]
+  modalities.inertial.model.imuformer.kwargs.cnn_kernel_sizes:
+    values: 
+      - [[1,1], [3,3], [5,5]]
+      - [[1,1], [5,5], [7,7]]
+      - [[1,1], [7,7], [9,9]]
+      - [[3,3], [5,5], [7,7]]
+  modalities.inertial.model.imuformer.kwargs.dropout:
+    distribution: uniform
+    min: 0.1
+    max: 0.5
+  modalities.inertial.model.imuformer.kwargs.weight_decay:
+    distribution: uniform
+    min: 0.001
+    max: 0.1
+  modalities.inertial.model.imuformer.kwargs.batch_size:
+    values: [32, 64, 128]
+  experiment.seed:
+    values: [28, 42, 123]  # Multiple seeds to ensure robustness 

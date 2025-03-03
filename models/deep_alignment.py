@@ -8,6 +8,9 @@ from pytorch_lightning.core.lightning import LightningModule
 import torch.nn as nn
 from models.mlp import DAProjectionLayer
 
+
+#https://github.com/LiqunChen0606/Graph-Optimal-Transport/blob/master/BAN_vqa/OT_torch_.py
+
 def cost_matrix_torch(x, y):
 	"Returns the cosine distance"
 	# x is the image embedding
