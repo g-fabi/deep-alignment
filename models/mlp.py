@@ -20,6 +20,8 @@ class UnimodalLinearEvaluator(LightningModule):
 
 	def forward(self, x):
 		x = self.encoder(x)
+		if isinstance(x, tuple):
+			x = x[0]  # Use global features
 		x = self.flatten(x)
 		return self.linear(x)
 

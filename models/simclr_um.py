@@ -24,15 +24,18 @@ class NTXent(LightningModule):
         """
             Implementation from https://github.com/sthalles/SimCLR/blob/master/simclr.py
         """
+        # Calculate actual batch size from features
+        actual_batch_size = features.shape[0] // n_views
+        
         # creates a vector with labels [0, 1, 2, 0, 1, 2] 
-        labels = torch.cat([torch.arange(batch_size) for i in range(n_views)], dim=0)
-        # creates matrix where 1 is on the main diagonal and where indexes of the same intances match (e.g. [0, 4][1, 5] for batch_size=3 and n_views=2) 
+        labels = torch.cat([torch.arange(actual_batch_size) for i in range(n_views)], dim=0)
+        # creates matrix where 1 is on the main diagonal and where indexes of the same intances match
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
-        # computes similarity matrix by multiplication, shape: (batch_size * n_views, batch_size * n_views)
+        # computes similarity matrix by multiplication
         similarity_matrix = get_cosine_sim_matrix(features)
         
         # discard the main diagonal from both: labels and similarities matrix
-        mask = torch.eye(labels.shape[0], dtype=torch.bool)#.to(self.args.device)
+        mask = torch.eye(labels.shape[0], dtype=torch.bool, device=features.device)
         # mask out the main diagonal - output has one column less 
         labels = labels[~mask].view(labels.shape[0], -1)
         similarity_matrix_wo_diag = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)

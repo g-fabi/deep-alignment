@@ -1,0 +1,46 @@
+program: ssl_training.py
+name: poseformer_simclr_sweep_utd
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --model=poseformer
+  - --framework=simclr
+  - --experiment_config_path
+  - configs/simclr/poseformer_simclr_utd.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - utd_mhad
+  - --data_path
+  - processed_data/utd_mhad/multimodal_har_datasets
+  - --augmentations_path
+  - configs/skeleton_augmentations/augmentations_utd.yaml
+  - --no_ckpt
+  - --sweep
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+early_terminate:
+  type: hyperband
+  min_iter: 25
+  eta: 3
+  s: 2
+  max_iter: 150
+parameters:
+  # Only sweeping SSL parameters - encoder architecture is fixed as in poseformer_simclr_utd.yaml
+  modalities.skeleton.model.ssl.kwargs.batch_size:
+    values: [16, 32, 64]
+  modalities.skeleton.model.ssl.kwargs.hidden:
+    values: [[128, 64], [256, 128], [512, 256]]
+  modalities.skeleton.model.ssl.kwargs.temperature:
+    distribution: uniform
+    min: 0.05
+    max: 0.3
+  modalities.skeleton.model.ssl.kwargs.n_views:
+    values: [2, 4, 8]
+  modalities.skeleton.model.ssl.kwargs.lr:
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 1e-2 

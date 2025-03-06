@@ -1,6 +1,10 @@
 import argparse
 from pytorch_lightning import Trainer, seed_everything
 from models.mlp import UnimodalLinearEvaluator
+import os
+import shutil
+import yaml
+import copy
 
 from utils.experiment_utils import (generate_experiment_id,
                                     load_yaml_to_dict)
@@ -46,11 +50,17 @@ def ssl_pre_training(args, modality, cfg, dataset_cfg, experiment_id, loggers_li
     flat_augmentations_dict = nested_to_flat_dict({"augmentations": augmentations_dict}) # need flat structure for wandb sweep to properly overwrite it
 
     # if using wandb and performing a sweep, overwrite the config params with the sweep params.
-    if args.sweep:
+    if args.sweep and 'wandb' in loggers_dict:
         _wandb = loggers_dict['wandb'].experiment
 
         # Take some specific parameters.
-        num_epochs = _wandb.config["num_epochs_ssl"]
+        if "num_epochs_ssl" in _wandb.config:
+            num_epochs = _wandb.config["num_epochs_ssl"]
+        
+        # Handle unified batch size if present
+        if "batch_size" in _wandb.config:
+            cfg['modalities'][modality]['model'][args.model]['kwargs']['batch_size'] = _wandb.config["batch_size"]
+            cfg['modalities'][modality]['model']['ssl']['kwargs']['batch_size'] = _wandb.config["batch_size"]
         
         # Take SSL model kwargs and merge with experiment config.
         ssl_key_values = {key: _wandb.config[key] for key in _wandb.config.keys() if key.startswith('ssl.')}
@@ -69,6 +79,25 @@ def ssl_pre_training(args, modality, cfg, dataset_cfg, experiment_id, loggers_li
         flat_augmentations_dict = {**flat_augmentations_dict, **augmentation_key_values}
         augmentations_dict = flat_to_nested_dict(flat_augmentations_dict)['augmentations']
 
+        # Process direct parameter mappings from wandb sweep
+        for param_key, param_val in _wandb.config.items():
+            if param_key.startswith("modalities."):
+                keys = param_key.split(".")
+                current = cfg
+                for key in keys[:-1]:
+                    if key not in current:
+                        current[key] = {}
+                    current = current[key]
+                current[keys[-1]] = param_val
+        
+        # Save the full configuration to WandB
+        full_config = {
+            "experiment": cfg['experiment'],
+            "modalities": {modality: cfg['modalities'][modality]},
+            "augmentations": augmentations_dict
+        }
+        _wandb.config.update({"full_config": full_config}, allow_val_change=True)
+
     # take sample_length cfg from model definition and overwrite transform args
     model_cfg = cfg['modalities'][modality]['model'][args.model]
     transform_cfg = cfg['modalities'][modality]['transforms']
@@ -86,7 +115,6 @@ def ssl_pre_training(args, modality, cfg, dataset_cfg, experiment_id, loggers_li
     # Merge general model params with dataset-specific model params.
     model_cfg['kwargs'] = {**dataset_cfg[modality], **model_cfg['kwargs']}
     
-    # initialize encoder and unimodal ssl framework model
     encoder = init_ssl_encoder(model_cfg)
     if args.framework == 'simclr':
         model = SimCLRUnimodal(modality, encoder, encoder.out_size, **cfg['modalities'][modality]['model']['ssl']['kwargs'])
@@ -99,8 +127,18 @@ def ssl_pre_training(args, modality, cfg, dataset_cfg, experiment_id, loggers_li
         experiment_id         = experiment_id,
     )
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(
+        args=args,
+        logger=loggers_list,
+        gpus=1,
+        deterministic=True,
+        max_epochs=num_epochs,
+        default_root_dir='logs',
+        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+        callbacks=callbacks,
+        checkpoint_callback=not args.no_ckpt,
+        log_every_n_steps=1
+    )
 
     trainer.fit(model, datamodule)
     return model.encoder, cfg
@@ -137,8 +175,18 @@ def fine_tuning(args, modality, cfg, dataset_cfg, encoder, loggers_list, loggers
         split=dataset_cfg['protocols'][args.protocol], train_transforms=train_transforms, test_transforms=test_transforms,
         num_workers=args.num_workers, limited_k=limited_k)
 
-    trainer = Trainer.from_argparse_args(args=args, logger=loggers_list, gpus=1, deterministic=True, max_epochs=num_epochs, default_root_dir='logs', 
-        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0, callbacks=callbacks, checkpoint_callback=not args.no_ckpt)
+    trainer = Trainer.from_argparse_args(
+        args=args,
+        logger=loggers_list,
+        gpus=1,
+        deterministic=True,
+        max_epochs=num_epochs,
+        default_root_dir='logs',
+        val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
+        callbacks=callbacks,
+        checkpoint_callback=not args.no_ckpt,
+        log_every_n_steps=1
+    )
 
     trainer.fit(model, datamodule)
     trainer.test(model, datamodule, ckpt_path='best')

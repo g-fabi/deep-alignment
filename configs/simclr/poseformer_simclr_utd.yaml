@@ -1,7 +1,7 @@
 experiment:
   seed: 28
-  num_epochs_ssl: 150
-  num_epochs_fine_tuning: 100
+  num_epochs_ssl: 200
+  num_epochs_fine_tuning: 120
   batch_size_fine_tuning: 64
 
 modalities:
@@ -14,30 +14,30 @@ modalities:
         encoder_name: poseformer
         args: []
         kwargs:
-          sample_length: 50
+          sample_length: 60
           opt:
-            layers: 12
-            number_of_kept_frames: 50
-            number_of_kept_coeffs: 20
+            layers: 6
+            number_of_kept_frames: 60
+            number_of_kept_coeffs: 60
             naive: false
-          embed_dim_ratio: 16
+          embed_dim_ratio: 64
           num_heads: 8
-          mlp_ratio: 2.0
+          mlp_ratio: 4
           qkv_bias: true
-          drop_rate: 0.09
-          attn_drop_rate: 0.0263
-          drop_path_rate: 0.000685
-          batch_size: 64
+          drop_rate: 0.2482604230164648
+          attn_drop_rate: 0.0199469937072425
+          drop_path_rate: 0.01977258832804884
+          batch_size: 32
       ssl:
         class_name: SimCLRUnimodal
         from_module: simclr_um
         kwargs:
           hidden: [256, 128]
-          batch_size: 64
+          batch_size: 32
           temperature: 0.1
           n_views: 2
           optimizer_name_ssl: lars
-          lr: 0.001
+          lr: 0.00020786739595865915
     transforms:
       - class_name: RecenterJoints
         from_module: skeleton_transforms
@@ -55,7 +55,7 @@ modalities:
         transform_name: sampling
         in_test: true
         kwargs:
-          size: 50
+          size: 60
       - class_name: ToTensor
         from_module: general_transforms
         in_test: true

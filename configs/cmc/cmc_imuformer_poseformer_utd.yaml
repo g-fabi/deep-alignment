@@ -1,17 +1,17 @@
 experiment:
   seed: 28
-  num_epochs_ssl: 150
+  num_epochs_ssl: 200
   num_epochs_fine_tuning: 120
   batch_size_fine_tuning: 64
 
 ssl:
   args: []
   kwargs:
-    temperature: 0.2
+    temperature: 0.07072450710367913
     sample_length: 60
-    batch_size: 64
-    hidden: [256, 128]
-    lr: 0.0001559439733088198
+    batch_size: 16
+    hidden: [512, 256]
+    lr: 0.0001130868281680382
     optimizer_name_ssl: "adam"
 
 modalities:
