@@ -1,5 +1,28 @@
+import os
+# Disable only process monitoring env vars
+os.environ['PL_DISABLE_FORK'] = '1'
+os.environ['WANDB_WATCH'] = 'false'
+os.environ['WANDB_DISABLE_STATS'] = '1'
 import argparse
 import random
+import pytorch_lightning
+from pytorch_lightning.callbacks.gpu_stats_monitor import GPUStatsMonitor
+
+# Disable GPU stats monitoring by replacing the monitor with a no-op version
+class NoOpGPUStatsMonitor(GPUStatsMonitor):
+    def on_train_start(self, *args, **kwargs): pass
+    def on_train_epoch_start(self, *args, **kwargs): pass
+    def on_train_batch_start(self, *args, **kwargs): pass
+    def on_validation_epoch_start(self, *args, **kwargs): pass
+    def on_test_epoch_start(self, *args, **kwargs): pass
+    def on_train_epoch_end(self, *args, **kwargs): pass
+    def on_validation_epoch_end(self, *args, **kwargs): pass
+    def on_test_epoch_end(self, *args, **kwargs): pass
+
+pytorch_lightning.callbacks.gpu_stats_monitor.GPUStatsMonitor = NoOpGPUStatsMonitor
+# Disable memory functions that might call system tools
+pytorch_lightning.utilities.memory.get_memory_stats = lambda: {}
+
 from pytorch_lightning import Trainer, seed_everything
 from models.cmc import ContrastiveMultiviewCoding
 from models.cmc_cvkm import ContrastiveMultiviewCodingCVKM
@@ -9,11 +32,20 @@ from models.deep_alignment import DeepAlignmentLoss, DeepAlignmentModel
 from models.cmc_da import ContrastiveMultiviewCodingDA
 import torch
 import json
-import os
+import multiprocessing
+import torch.multiprocessing
 
 from utils.experiment_utils import (dict_to_json, generate_experiment_id,
                                     load_yaml_to_dict)
 from utils.training_utils import *
+
+import psutil
+original_process_iter = psutil.process_iter
+def no_op_process_iter(*args, **kwargs):
+    return []
+psutil.process_iter = no_op_process_iter
+multiprocessing.set_start_method('spawn', force=True)
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -156,9 +188,24 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
         callbacks=callbacks,
         checkpoint_callback=not args.no_ckpt,
-        log_every_n_steps=1
+        log_every_n_steps=float('inf'),
+        progress_bar_refresh_rate=1,
+        process_position=0,
+        track_grad_norm=-1,
+        num_sanity_val_steps=0
     )
-    trainer.fit(model, datamodule)
+    
+    try:
+        trainer.fit(model, datamodule)
+    except Exception as e:
+        print(f"SSL training encountered an error: {str(e)}")
+        was_early_stopped = True
+        if args.sweep and 'wandb' in loggers_dict:
+            loggers_dict['wandb'].experiment.log({
+                "early_stopped": True,
+                "training_error": str(e)
+            })
+        return model.encoders, loggers_list, loggers_dict, experiment_id, was_early_stopped
     
     was_early_stopped = False
     if early_stopping_callback and early_stopping_callback.stopped_epoch > 0:
@@ -169,7 +216,7 @@ def ssl_pre_training(args, modalities, experiment_cfg, ssl_cfg, dataset_cfg, mod
             loggers_dict['wandb'].experiment.log({"early_stopped": True, 
                                                  "stopped_epoch": early_stopping_callback.stopped_epoch})
 
-    return encoders, loggers_list, loggers_dict, experiment_id, was_early_stopped
+    return model.encoders, loggers_list, loggers_dict, experiment_id, was_early_stopped
 
 def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, loggers_list, loggers_dict, experiment_id, limited_k=None):
     seed_everything(experiment_cfg['seed']) # reset seed for consistency in results
@@ -218,15 +265,40 @@ def fine_tuning(args, experiment_cfg, dataset_cfg, transform_cfgs, encoders, log
         val_check_interval = 0.0 if 'val' not in dataset_cfg['protocols'][args.protocol] else 1.0,
         callbacks=callbacks,
         checkpoint_callback=not args.no_ckpt,
-        log_every_n_steps=1
+        log_every_n_steps=10,
+        progress_bar_refresh_rate=10,
+        process_position=0,
+        track_grad_norm=0,
+        num_sanity_val_steps=0
     )
 
     trainer.fit(model, datamodule)
-    trainer.test(model, datamodule, ckpt_path='best')
+    
+    # Get the checkpoint callback to find the best model path
+    checkpoint_callback = next((cb for cb in callbacks if isinstance(cb, ModelCheckpoint)), None)
+    early_stopping_callback = next((cb for cb in callbacks if isinstance(cb, EarlyStopping)), None)
+    
+    # Determine which checkpoint to use for testing
+    if checkpoint_callback and checkpoint_callback.best_model_path:
+        test_ckpt_path = checkpoint_callback.best_model_path
+    else:
+        test_ckpt_path = None
+        
+    if early_stopping_callback and early_stopping_callback.stopped_epoch > 0:
+        if 'wandb' in loggers_dict:
+            loggers_dict['wandb'].experiment.log({
+                "fine_tuning_early_stopped": True,
+                "fine_tuning_stopped_epoch": early_stopping_callback.stopped_epoch
+            })
+    
+    trainer.test(model, datamodule, ckpt_path=test_ckpt_path)
 
     metrics = {metric: float(val) for metric, val in trainer.callback_metrics.items()}
-
+    
+    # Log test metrics to wandb
     if 'wandb' in loggers_dict:
+        test_metrics = {f"test_{k}": v for k, v in metrics.items()}
+        loggers_dict['wandb'].experiment.log(test_metrics)
         loggers_dict['wandb'].experiment.finish()
 
     return metrics

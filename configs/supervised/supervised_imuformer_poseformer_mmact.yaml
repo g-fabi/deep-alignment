@@ -1,18 +1,7 @@
 experiment:
   seed: 28
-  num_epochs_ssl: 200
-  num_epochs_fine_tuning: 120
-  batch_size_fine_tuning: 32
-
-ssl:
-  args: []
-  kwargs:
-    temperature: 0.07072450710367913
-    sample_length: 60
-    batch_size: 16
-    hidden: [512, 256]
-    lr: 0.0001130868281680382
-    optimizer_name_ssl: "adam"
+  num_epochs: 120
+  batch_size: 64
 
 modalities:
   inertial:
@@ -29,10 +18,15 @@ modalities:
           heads: 4
           _heads: 6
           sample_length: 60
-          dropout: 0.08553562864390574
+          in_channels: 12
+          dropout: 0.1
           pe_k: 40
           cnn_units: 6
           cnn_kernel_sizes: [[1,1], [7,7], [9,9]]
+          batch_size: 32
+          lr: 0.001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
     transforms:
       - class_name: InertialSampler
         from_module: inertial_transforms
@@ -57,14 +51,16 @@ modalities:
 
   skeleton:
     model:
-      poseformerv4:
+      poseformer:
         class_name: PoseFormer
         from_module: PoseFormerV4
         encoder_class_name: PoseFormer
-        encoder_name: poseformerv4
+        encoder_name: poseformer
         args: []
         kwargs:
           sample_length: 60
+          n_joints: 17
+          input_channels: 2
           opt:
             layers: 6
             number_of_kept_frames: 60
@@ -72,23 +68,21 @@ modalities:
             naive: false
           embed_dim_ratio: 64
           num_heads: 8
-          mlp_ratio: 4.0
+          mlp_ratio: 4
           qkv_bias: true
-          drop_rate: 0.2482604230164648
-          attn_drop_rate: 0.0199469937072425
-          drop_path_rate: 0.01977258832804884
+          drop_rate: 0.2
+          attn_drop_rate: 0.02
+          drop_path_rate: 0.02
+          batch_size: 32
+          lr: 0.001
+          optimizer_name: "adam"
+          metric_name: "accuracy"
     transforms:
-      - class_name: RecenterJoints
+      - class_name: VariableLengthRandomCrop
         from_module: skeleton_transforms
-        in_test: true
+        in_test: false
         kwargs:
-          anchor_joint_index: 2
-      - class_name: NormalizeDistances
-        from_module: skeleton_transforms
-        in_test: true
-        kwargs:
-          anchor_joint_1_index: 1
-          anchor_joint_2_index: 2
+          crop_p: 0.7
       - class_name: SkeletonSampler
         from_module: skeleton_transforms
         transform_name: sampling
@@ -98,6 +92,11 @@ modalities:
       - class_name: ToTensor
         from_module: general_transforms
         in_test: true
+      - class_name: Jittering
+        from_module: inertial_augmentations
+        in_test: false
+        kwargs:
+          sigma: 0.01
       - class_name: Permute
         from_module: general_transforms
         in_test: true

@@ -1,0 +1,78 @@
+program: ssl_training_mm.py
+name: cmc_da_constant_sweep_mmact
+command:
+  - python
+  - ssl_training_mm.py
+  - --experiment_config_path
+  - configs/cmc_da/cmc_da_imuformer_poseformer_mmact.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - mmact
+  - --data_path
+  - processed_data/mmact
+  - --augmentations_path
+  - configs/inertial_augmentations/augmentations_mmact.yaml
+  - configs/skeleton_augmentations/augmentations_mmact.yaml
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - imuformer
+  - poseformerv4
+  - --num-workers
+  - 4
+  - --framework
+  - cmc-da
+  - --sweep
+  - --max_epochs=120
+method: bayes
+metric:
+  name: ssl_val_loss
+  goal: minimize
+
+early_terminate:
+  type: hyperband
+  min_iter: 25
+  eta: 3
+  s: 2
+  max_iter: 120
+  
+parameters:
+  # Constant Weighting Parameters
+  ssl.weighting.uncertainty:
+    value: false
+  ssl.weighting.constant:
+    value: true
+    
+  # Alpha parameter for our formula: final_loss = alpha * cmc_loss + (1 - alpha) * ((spatial_loss + temporal_loss) / 2)
+  ssl.weighting.constant_params.lambda_ntxent:
+    distribution: uniform
+    min: 0.1
+    max: 0.9
+  # Use this parameter as (1-alpha) in the formula
+  ssl.weighting.constant_params.lambda_da:
+    values: [-1] # Special value that will make the code use (1 - lambda_ntxent)
+
+  # Deep Alignment Parameters
+  ssl.da_kwargs.beta:
+    distribution: uniform
+    min: 0.1
+    max: 0.9
+  ssl.da_kwargs.iteration:
+    distribution: int_uniform
+    min: 10
+    max: 100
+  ssl.da_kwargs.common_dim:
+    values: [256, 512, 1024]
+  ssl.da_kwargs.weight_spatial:
+    distribution: uniform
+    min: 0.5
+    max: 1.5
+  ssl.da_kwargs.weight_temporal:
+    distribution: uniform
+    min: 0.5
+    max: 1.5
+
+  seed:
+    values: [28] 

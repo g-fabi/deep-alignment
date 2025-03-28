@@ -185,15 +185,21 @@ class ContrastiveMultiviewCodingDA(LightningModule):
 
         # Log weighting parameters if any
         for name, value in self.weighting.get_log_vars().items():
-            self.log(name, value)
+            self.log(name, value, on_epoch=True)
 
-        self.log("ssl_train_loss", total_loss)
-        self.log("cmc_loss", loss_ntxent)
-        self.log("da_loss", loss_da)
-        self.log("da_loss_spatial", loss_spatial)
-        self.log("da_loss_temporal", loss_temporal)
-        self.log("avg_positive_sim", pos_mean)
-        self.log("avg_neg_sim", neg_mean)
+        self.log("ssl_train_loss", total_loss, on_epoch=True)
+        self.log("cmc_loss", loss_ntxent, on_epoch=True)
+        self.log("da_loss", loss_da, on_epoch=True)
+        self.log("da_loss_spatial", loss_spatial, on_epoch=True)
+        self.log("da_loss_temporal", loss_temporal, on_epoch=True)
+        self.log("avg_positive_sim", pos_mean, on_epoch=True)
+        self.log("avg_neg_sim", neg_mean, on_epoch=True)
+
+        # Log learning rate if available
+        if self.trainer is not None and self.trainer.optimizers:
+            current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.log("learning_rate", current_lr, on_epoch=True, prog_bar=False)
+
         return total_loss
 
     def validation_step(self, batch, batch_idx):
@@ -216,11 +222,11 @@ class ContrastiveMultiviewCodingDA(LightningModule):
         weighted_ntxent, weighted_da = self.weighting.weight_losses(loss_ntxent, loss_da)
         total_loss = weighted_ntxent + weighted_da
 
-        self.log("ssl_val_loss", total_loss)
-        self.log("cmc_val_loss", loss_ntxent)
-        self.log("da_val_loss", loss_da)
-        self.log("da_val_loss_spatial", loss_spatial)
-        self.log("da_val_loss_temporal", loss_temporal)
+        self.log("ssl_val_loss", total_loss, on_epoch=True)
+        self.log("cmc_val_loss", loss_ntxent, on_epoch=True)
+        self.log("da_val_loss", loss_da, on_epoch=True)
+        self.log("da_val_loss_spatial", loss_spatial, on_epoch=True)
+        self.log("da_val_loss_temporal", loss_temporal, on_epoch=True)
         return total_loss
 
     def configure_optimizers(self):

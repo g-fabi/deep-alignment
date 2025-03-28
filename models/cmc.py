@@ -107,9 +107,9 @@ class ContrastiveMultiviewCoding(LightningModule):
             batch[m] = batch[m].float()
         outs = self(batch)
         loss, pos, neg = self.loss(outs)
-        self.log("ssl_train_loss", loss)
-        self.log("avg_positive_sim", pos)
-        self.log("avg_neg_sim", neg)
+        self.log("ssl_train_loss", loss, on_epoch=True)
+        self.log("avg_positive_sim", pos, on_epoch=True)
+        self.log("avg_neg_sim", neg, on_epoch=True)
         
         # for name, param in self.encoders.named_parameters():
         #     if param.grad is not None:
@@ -124,7 +124,7 @@ class ContrastiveMultiviewCoding(LightningModule):
             batch[m] = batch[m].float()
         outs = self(batch)
         loss, _, _ = self.loss(outs)
-        self.log("ssl_val_loss", loss)
+        self.log("ssl_val_loss", loss, on_epoch=True)
 
     def configure_optimizers(self):
         return self._initialize_optimizer()

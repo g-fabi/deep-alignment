@@ -1,0 +1,57 @@
+program: ssl_training_mm.py
+name: cmc_sslparam_imupose_sweep_mmact
+command:
+  - python
+  - ssl_training_mm.py
+  - --experiment_config_path
+  - configs/cmc/cmc_imuformer_poseformer_mmact.yaml
+  - --dataset_config_path
+  - configs/dataset_configs.yaml
+  - --dataset
+  - mmact
+  - --data_path
+  - processed_data/mmact
+  - --augmentations_path
+  - configs/inertial_augmentations/augmentations_mmact.yaml
+  - configs/skeleton_augmentations/augmentations_mmact.yaml
+  - --modalities
+  - inertial
+  - skeleton
+  - --models
+  - imuformer
+  - poseformerv4
+  - --num-workers
+  - 4
+  - --framework
+  - cmc
+  - --sweep
+  - --max_epochs=60
+method: bayes
+metric:
+  name: ssl_val_loss
+  goal: minimize
+
+early_terminate:
+  type: hyperband
+  min_iter: 25
+  eta: 3
+  s: 2
+  max_iter: 60
+parameters:
+  ssl.temperature:
+    distribution: uniform
+    min: 0.05
+    max: 0.5
+  ssl.lr:
+    distribution: uniform
+    min: 0.00001
+    max: 0.001
+  ssl.batch_size:
+    values: [16, 32, 64]
+  ssl.hidden:
+    values:
+      - [256, 128]
+      - [512, 256]
+
+  seed:
+    values: [28] 

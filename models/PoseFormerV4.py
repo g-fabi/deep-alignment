@@ -437,9 +437,12 @@ class PoseFormer(nn.Module):
                     - 'temporal_skeleton': [B, sample_length, embed_dim_ratio]
         """
         x = x.squeeze(-1)
-        # If input is [B, C, T, J] (C==3), permute to [B, T, J, C]
-        if x.shape[1] == 3:
-            x = x.permute(0, 2, 3, 1)
+        # Handle both UTD (3D) and MMACT (2D) inputs
+        if len(x.shape) == 4:  # [B, C, T, J]
+            if x.shape[1] == 3:  # UTD case
+                x = x.permute(0, 2, 3, 1)  # [B, T, J, C]
+            elif x.shape[1] == 2:  # MMACT case
+                x = x.permute(0, 2, 3, 1)  # [B, T, J, C]
         x_ = x.clone()
 
         spatial_tokens, cls_spatial = self.Spatial_forward_features(x)

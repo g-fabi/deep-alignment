@@ -28,7 +28,7 @@ class MultiModalClassifier(LightningModule):
         modalities = ['inertial', 'skeleton'],
         optimizer_name='adam',
         metric_scheduler='accuracy',
-        lr=0.001,
+        lr=0.00020786739595865915,
         freeze_encoders=False) -> None:
 
         super().__init__()
